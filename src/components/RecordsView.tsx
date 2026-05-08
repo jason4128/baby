@@ -87,8 +87,8 @@ export default function RecordsView({
     else if (week <= 36) size = "fully developed sleeping baby";
     else size = "newborn chubby baby ready to be born";
 
-    const prompt = `cute 3D toy art style ${size}, wearing a light blue whale shark costume with white polka dots, simple circular background, pure white backdrop, centered, macro photography, high quality, smooth, showing embryo development stage`;
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=888${week}`;
+    const prompt = `cute very simple flat vector illustration of ${size}, wearing a light blue whale shark costume with white polka dots, minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=999${week}`;
   };
 
   const handleDateSubmit = (e: React.FormEvent) => {
