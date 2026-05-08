@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user's tools, seasonings, and ingredients",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The user ID" },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "seasonings": { "type": "array", "items": { "type": "string" } },
+        "ingredients": { "type": "array", "items": { "type": "string" } },
+        "conceptionDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "createdAt", "updatedAt"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "Stores saved recipes",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "ingredients": { "type": "array", "items": { "type": "object", "properties": {"name": {"type":"string"}, "amount": {"type":"string"}, "icon": {"type":"string"}} } },
+        "steps": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "createdAt", "updatedAt"]
+    },
+    "BabyRecord": {
+      "title": "Baby Record",
+      "description": "Stores logs and media for the baby",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["image", "video", "text"] },
+        "url": { "type": "string" },
+        "note": { "type": "string" },
+        "weekCount": { "type": "number" },
+        "dayCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "date", "type", "createdAt"]
+    },
+    "ShoppingItem": {
+      "title": "Shopping Item",
+      "description": "Stores items to buy",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "isPurchased": { "type": "boolean" },
+        "suggestedWeek": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "isPurchased", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile containing tools and ingredients"
+    },
+    "recipes/{recipeId}": {
+      "schema": "Recipe",
+      "description": "Recipes saved by the user"
+    },
+    "records/{recordId}": {
+      "schema": "BabyRecord",
+      "description": "Baby growth records"
+    },
+    "shoppingItems/{itemId}": {
+      "schema": "ShoppingItem",
+      "description": "Shopping list items"
+    }
+  }
+}

@@ -1,0 +1,124 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+
+    // UserProfile Validations
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'createdAt', 'updatedAt']) 
+        && data.userId == request.auth.uid
+        && data.userId is string && data.userId.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && ( !('tools' in data) || (data.tools is list && data.tools.size() <= 100) )
+        && ( !('seasonings' in data) || (data.seasonings is list && data.seasonings.size() <= 100) )
+        && ( !('ingredients' in data) || (data.ingredients is list && data.ingredients.size() <= 200) )
+        && ( !('conceptionDate' in data) || data.conceptionDate is string );
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId)
+                    && isValidUserProfile(incoming())
+                    && incoming().createdAt == request.time
+                    && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && request.auth.uid == userId && isValidId(userId)
+                    && isValidUserProfile(incoming())
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().updatedAt == request.time
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['tools', 'seasonings', 'ingredients', 'conceptionDate', 'updatedAt']);
+    }
+
+    // Recipe Validations
+    function isValidRecipe(data) {
+      return data.keys().hasAll(['userId', 'title', 'createdAt', 'updatedAt'])
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && ( !('category' in data) || (data.category is string && data.category.size() <= 50) )
+        && ( !('description' in data) || (data.description is string && data.description.size() <= 1000) )
+        && ( !('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500) )
+        && ( !('ingredients' in data) || (data.ingredients is list && data.ingredients.size() <= 50) )
+        && ( !('steps' in data) || (data.steps is list && data.steps.size() <= 50) );
+    }
+
+    match /recipes/{recipeId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recipeId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(recipeId)
+                    && isValidRecipe(incoming())
+                    && incoming().createdAt == request.time
+                    && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recipeId)
+                    && isValidRecipe(incoming())
+                    && incoming().userId == existing().userId
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().updatedAt == request.time
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'description', 'imageUrl', 'ingredients', 'steps', 'updatedAt']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recipeId);
+    }
+
+    // BabyRecord Validations
+    function isValidBabyRecord(data) {
+      return data.keys().hasAll(['userId', 'date', 'type', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.date is string && data.date.size() <= 50
+        && data.type is string && data.type in ['image', 'video', 'text']
+        && data.createdAt is timestamp
+        && ( !('url' in data) || (data.url is string && data.url.size() <= 1000) )
+        && ( !('note' in data) || (data.note is string && data.note.size() <= 2000) )
+        && ( !('weekCount' in data) || data.weekCount is number )
+        && ( !('dayCount' in data) || data.dayCount is number );
+    }
+
+    match /records/{recordId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recordId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(recordId)
+                    && isValidBabyRecord(incoming())
+                    && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recordId);
+    }
+
+    // ShoppingItem Validations
+    function isValidShoppingItem(data) {
+      return data.keys().hasAll(['userId', 'name', 'isPurchased', 'createdAt', 'updatedAt'])
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() <= 100
+        && data.isPurchased is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && ( !('category' in data) || (data.category is string && data.category.size() <= 50) )
+        && ( !('suggestedWeek' in data) || data.suggestedWeek is number );
+    }
+
+    match /shoppingItems/{itemId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid && isValidId(itemId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(itemId)
+                    && isValidShoppingItem(incoming())
+                    && incoming().createdAt == request.time
+                    && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidId(itemId)
+                    && isValidShoppingItem(incoming())
+                    && incoming().userId == existing().userId
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().updatedAt == request.time
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'isPurchased', 'suggestedWeek', 'updatedAt']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid && isValidId(itemId);
+    }
+  }
+}
