@@ -11,8 +11,10 @@ import RecipesView from './components/RecipesView';
 import RecordsView from './components/RecordsView';
 import ShoppingView from './components/ShoppingView';
 
+import LoginView from './components/LoginView';
+
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function App() {
@@ -38,14 +40,15 @@ export default function App() {
   
   const [pregWeek, setPregWeek] = useState(0);
   const [pregDay, setPregDay] = useState(0);
+  const [conceptionDate, setConceptionDate] = useState<Date>(CONCEPTION_DATE);
 
   useEffect(() => {
     // Calculate current pregnancy week
     const now = new Date();
-    const diffDays = differenceInDays(now, CONCEPTION_DATE);
+    const diffDays = differenceInDays(now, conceptionDate);
     setPregWeek(Math.floor(diffDays / 7));
     setPregDay(diffDays % 7);
-  }, []);
+  }, [conceptionDate]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -59,6 +62,9 @@ export default function App() {
             setTools(data.tools || []);
             setSeasonings(data.seasonings || []);
             setIngredients(data.ingredients || []);
+            if (data.conceptionDate) {
+              setConceptionDate(new Date(data.conceptionDate));
+            }
           } else {
             try {
               await setDoc(docRef, {
@@ -80,10 +86,8 @@ export default function App() {
           setIsAuthLoading(false);
         }
       } else {
-        signInAnonymously(auth).catch(e => {
-          console.error("Anonymous authentication failed", e);
-          setIsAuthLoading(false);
-        });
+        setUser(null);
+        setIsAuthLoading(false);
       }
     });
     return () => unsub();
@@ -272,30 +276,27 @@ export default function App() {
   }
 
   if (!user) {
-    return (
-      <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-[#fdfbf7] p-6 text-center">
-        <h1 className="text-3xl font-black text-[#5C4D43] mb-4 flex items-center gap-2">
-          <Baby className="w-8 h-8 text-amber-600" />
-          需要啟用匿名登入
-        </h1>
-        <p className="text-[#8B7355] mb-4 max-w-sm">
-          為了在不使用 Google 帳號的情況下儲存您的個人資料，請前往 Firebase 控制台啟用「匿名登入 (Anonymous Auth)」：
-        </p>
-        <ol className="text-left text-[#5C4D43] font-medium space-y-2 mb-8 bg-white p-4 rounded-xl border border-amber-100">
-          <li>1. 前往 <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-amber-600 underline">Firebase 控制台</a></li>
-          <li>2. 選擇專案 <strong>japantravel-8e369</strong></li>
-          <li>3. 點擊左側 <strong>Authentication</strong> (驗證)</li>
-          <li>4. 選擇 <strong>Sign-in method</strong> (登入方式) 頁籤</li>
-          <li>5. 新增提供商，選擇 <strong>Anonymous</strong> (匿名) 並啟用</li>
-          <li>6. 回到這裡重新整理頁面</li>
-        </ol>
-      </div>
-    );
+    return <LoginView />;
   }
+
+  const handleUpdateConceptionDate = async (newDate: Date) => {
+    setConceptionDate(newDate);
+    if (user) {
+      try {
+        const docRef = doc(db, 'users', user.uid);
+        await updateDoc(docRef, { 
+          conceptionDate: newDate.toISOString(),
+          updatedAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
 
   const renderContent = () => {
     if (activeTab === 'recipes') return <RecipesView />;
-    if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} />;
+    if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} />;
     if (activeTab === 'shopping') return <ShoppingView pregWeek={pregWeek} />;
     if (activeTab === 'settings') return (
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#fdfbf7]">
@@ -423,6 +424,15 @@ export default function App() {
                   儲存金鑰
                 </button>
               </div>
+            </div>
+
+            {/* Logout */}
+            <div className="mt-8 pt-6 border-t border-amber-100 text-center">
+               <button 
+                  onClick={() => signOut(auth)}
+                  className="px-6 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 font-bold transition-colors">
+                  登出帳號
+               </button>
             </div>
           </div>
         </div>
