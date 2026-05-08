@@ -1,6 +1,33 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+export function getGeminiKey() {
+  // Try to get from localStorage first, fallback to process.env
+  try {
+    return localStorage.getItem("GEMINI_API_KEY") || process.env.GEMINI_API_KEY;
+  } catch (e) {
+    return process.env.GEMINI_API_KEY;
+  }
+}
+
+export function setGeminiKey(key: string) {
+  try {
+    if (key) {
+      localStorage.setItem("GEMINI_API_KEY", key);
+    } else {
+      localStorage.removeItem("GEMINI_API_KEY");
+    }
+  } catch (e) {
+    console.error("Local storage error", e);
+  }
+}
+
+function getGeminiClient() {
+  const apiKey = getGeminiKey();
+  if (!apiKey) {
+    throw new Error("請先在側邊欄設定您的 Gemini API Key！");
+  }
+  return new GoogleGenAI({ apiKey });
+}
 
 export async function chatWithConsultant(
   context: string,
@@ -22,6 +49,7 @@ export async function chatWithConsultant(
       }
     ];
 
+    const ai = getGeminiClient();
     const response = await ai.models.generateContent({
       model: "gemini-3.1-pro-preview",
       contents: contents as any,

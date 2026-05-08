@@ -3,7 +3,7 @@ import { differenceInDays } from 'date-fns';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn } from 'lucide-react';
-import { chatWithConsultant, fileToBase64 } from './services/gemini';
+import { chatWithConsultant, fileToBase64, getGeminiKey, setGeminiKey } from './services/gemini';
 import { BASE_SYSTEM_PROMPT, INITIAL_TOOLS, INITIAL_SEASONINGS, INITIAL_INGREDIENTS, CONCEPTION_DATE } from './constants';
 import { cn } from './lib/utils';
 import { AppTab } from './types';
@@ -27,6 +27,7 @@ export default function App() {
   const [newTool, setNewTool] = useState('');
   const [newSeasoning, setNewSeasoning] = useState('');
   const [newIngredient, setNewIngredient] = useState('');
+  const [geminiKeyInput, setGeminiKeyInput] = useState(() => getGeminiKey() || '');
 
   const [messages, setMessages] = useState<{ role: 'user' | 'model'; parts: { text: string; inlineData?: any }[] }[]>([]);
   const [input, setInput] = useState('');
@@ -397,6 +398,31 @@ export default function App() {
               <p className="text-sm text-amber-800/80 leading-relaxed font-medium">
                 您的廚房裝備、調味料與食材會自動同步給育產顧問，顧問將依據這些條件為您設計孕期專屬的冷凍快速包食譜，以及在採購規劃中標記需要購買的食材。
               </p>
+            </div>
+
+            {/* API Key */}
+            <div className="mt-8 pt-6 border-t border-amber-100">
+              <h3 className="text-sm font-bold text-[#5C4D43] mb-3 flex items-center gap-2">Gemini API Key</h3>
+              <p className="text-sm text-amber-800/70 mb-3">
+                部署至 GitHub Pages 等外部平台時，請輸入您的 Gemini API Key 以啟用 AI 顧問功能。（您的 Key 將只會存在您的瀏覽器中）
+              </p>
+              <div className="flex gap-2">
+                <input 
+                  type="password" 
+                  value={geminiKeyInput} 
+                  onChange={e => setGeminiKeyInput(e.target.value)}
+                  className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
+                  placeholder="輸入您的 Gemini API Key..."
+                />
+                <button 
+                  onClick={() => {
+                     setGeminiKey(geminiKeyInput);
+                     alert(' API Key 已儲存至瀏覽器！');
+                  }} 
+                  className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition-colors shrink-0">
+                  儲存金鑰
+                </button>
+              </div>
             </div>
           </div>
         </div>
