@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingItem } from '../types';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { ShoppingBag, CheckCircle2, Circle, ArrowRight } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { ShoppingBag, CheckCircle2, Circle, ArrowRight, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
@@ -28,14 +28,37 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
     return () => unsubscribe();
   }, []);
 
-  const togglePurchased = async (id: string, currentStatus: boolean) => {
+  const togglePurchased = async (item: ShoppingItem) => {
     try {
-      await updateDoc(doc(db, 'shoppingItems', id), {
-        isPurchased: !currentStatus,
+      await updateDoc(doc(db, 'shoppingItems', item.id), {
+        isPurchased: !item.isPurchased,
         updatedAt: serverTimestamp()
       });
+
+      if (!item.isPurchased && auth.currentUser) {
+        let targetField = '';
+        if (item.category === '食材') targetField = 'ingredients';
+        else if (item.category === '工具') targetField = 'tools';
+        else if (item.category === '調味料') targetField = 'seasonings';
+
+        if (targetField) {
+          await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+            [targetField]: arrayUnion(item.name),
+            updatedAt: serverTimestamp()
+          });
+        }
+      }
     } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `shoppingItems/${id}`);
+      handleFirestoreError(e, OperationType.UPDATE, `shoppingItems/${item.id}`);
+    }
+  };
+
+  const deleteItem = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await deleteDoc(doc(db, 'shoppingItems', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `shoppingItems/${id}`);
     }
   };
 
@@ -93,7 +116,7 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
           {items.map(item => (
             <div 
               key={item.id} 
-              onClick={() => togglePurchased(item.id, item.isPurchased)}
+              onClick={() => togglePurchased(item)}
               className={cn(
                 "group flex items-center justify-between p-4 rounded-2xl border cursor-pointer transition-all duration-300",
                 item.isPurchased 
@@ -129,6 +152,12 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
                   </div>
                 </div>
               </div>
+              <button 
+                onClick={(e) => deleteItem(item.id!, e)}
+                className="opacity-0 group-hover:opacity-100 p-2 text-slate-400 hover:text-red-500 transition-all hover:bg-red-50 rounded-lg"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
             </div>
           ))}
           {items.length === 0 && (

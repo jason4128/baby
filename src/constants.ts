@@ -44,7 +44,7 @@ export const BASE_SYSTEM_PROMPT = `
   "shoppingItems": [
     {
       "name": "需要補充的食材或用品",
-      "category": "採購分類 (如：食材、營養品、母嬰用品)",
+      "category": "採購分類 (必須是以下之一：食材、工具、調味料、營養品、母嬰用品、一般)",
       "suggestedWeek": {week}
     }
   ]

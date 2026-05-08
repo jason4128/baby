@@ -201,7 +201,7 @@ export default function App() {
               title: r.title || '無標題',
               category: r.category || 'AI 生成',
               description: r.description || '',
-              imageUrl: r.imageUrl || `https://images.unsplash.com/photo-1490645935967-10de6ba17061?q=80&w=800&auto=format&fit=crop`,
+              imageUrl: `https://image.pollinations.ai/prompt/A+delicious+dish,+realistic+food+photography+of+meal+${encodeURIComponent(r.title || 'delicious food')}?width=800&height=600&nologo=true`,
               ingredients: r.ingredients || [],
               steps: r.steps || [],
               createdAt: serverTimestamp(),

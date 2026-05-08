@@ -1,13 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { Recipe } from '../types';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { ChefHat, ChevronRight, ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { ChefHat, ChevronRight, ArrowLeft, Image as ImageIcon, RefreshCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export default function RecipesView() {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
+  const handleRegenerateImage = async () => {
+    if (!selectedRecipeId) return;
+    const recipe = recipes.find(r => r.id === selectedRecipeId);
+    if (!recipe) return;
+
+    setIsRegenerating(true);
+    try {
+      const seed = Math.floor(Math.random() * 1000000);
+      const newImageUrl = `https://image.pollinations.ai/prompt/A+delicious+dish,+realistic+food+photography+of+meal+${encodeURIComponent(recipe.title || 'delicious food')}?width=800&height=600&nologo=true&seed=${seed}`;
+      
+      await updateDoc(doc(db, 'recipes', recipe.id), {
+        imageUrl: newImageUrl,
+        updatedAt: serverTimestamp()
+      });
+      // We purposefully DO NOT set isRegenerating to false here.
+      // The onLoad event of the image will set it false when the new image arrives.
+    } catch (e) {
+      setIsRegenerating(false);
+      handleFirestoreError(e, OperationType.UPDATE, `recipes/${recipe.id}`);
+    }
+  };
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -21,6 +44,13 @@ export default function RecipesView() {
 
     return () => unsubscribe();
   }, []);
+
+  const getImageUrl = (recipe: Recipe) => {
+    if (!recipe.imageUrl || recipe.imageUrl.includes('unsplash') || recipe.imageUrl.includes('cute+japanese') || recipe.imageUrl.includes('top+down+view')) {
+      return `https://image.pollinations.ai/prompt/A+delicious+dish,+realistic+food+photography+of+meal+${encodeURIComponent(recipe.title || 'delicious food')}?width=800&height=600&nologo=true`;
+    }
+    return recipe.imageUrl;
+  };
 
   const selectedRecipe = recipes.find(r => r.id === selectedRecipeId);
 
@@ -55,8 +85,8 @@ export default function RecipesView() {
               >
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-slate-100 relative">
-                    {recipe.imageUrl ? (
-                      <img src={recipe.imageUrl} alt={recipe.title} className="w-full h-full object-cover" />
+                    {getImageUrl(recipe) ? (
+                      <img src={getImageUrl(recipe)} alt={recipe.title} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-amber-50 text-amber-300">
                         <ImageIcon className="w-6 h-6" />
@@ -111,13 +141,28 @@ export default function RecipesView() {
           </div>
 
           {/* AI Image Placeholder */}
-          <div className="w-full max-w-2xl mx-auto rounded-3xl overflow-hidden shadow-sm relative aspect-video bg-amber-50 border-4 border-white">
-            <img src={selectedRecipe.imageUrl} alt={selectedRecipe.title} className="w-full h-full object-cover" />
+          <div className="w-full max-w-2xl mx-auto rounded-3xl overflow-hidden shadow-sm relative aspect-video bg-amber-50 border-4 border-white group">
+            <img 
+              src={getImageUrl(selectedRecipe)} 
+              alt={selectedRecipe.title} 
+              onLoad={() => setIsRegenerating(false)}
+              className={cn("w-full h-full object-cover transition-all duration-500", isRegenerating && "opacity-60 blur-md grayscale sm:grayscale-0")} 
+            />
+            
             <div className="absolute top-4 right-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold text-amber-800 flex items-center gap-1.5 shadow-sm">
               <ImageIcon className="w-3.5 h-3.5" />
               AI 生成示意圖
-              <span className="ml-1 text-[#8B7355]/60 font-normal">(受限於 Quota 目前以圖庫代替)</span>
             </div>
+
+            <button 
+              onClick={handleRegenerateImage}
+              disabled={isRegenerating}
+              className="absolute bottom-4 right-4 bg-white/90 hover:bg-white backdrop-blur px-4 py-2 rounded-full text-sm font-bold text-amber-800 flex items-center gap-2 shadow-md transition-all shadow-amber-900/10 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed group-hover:translate-y-0 sm:translate-y-2 sm:opacity-0 group-hover:opacity-100"
+            >
+              <RefreshCcw className={cn("w-4 h-4", isRegenerating && "animate-spin")} />
+              {isRegenerating ? '重新生成中...' : '更新圖片'}
+            </button>
+
             <div className="absolute inset-0 ring-1 ring-inset ring-black/5 rounded-3xl pointer-events-none"></div>
           </div>
 

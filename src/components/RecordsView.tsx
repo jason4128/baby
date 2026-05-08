@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Camera, Image as ImageIcon, Video, Plus, X, Calendar } from 'lucide-react';
+import { Camera, Image as ImageIcon, Video, Plus, X, Calendar, Baby } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export type RecordEntry = {
@@ -52,12 +52,76 @@ export default function RecordsView({ pregWeek, pregDay }: RecordsViewProps) {
     setRecords(records.filter(r => r.id !== id));
   };
 
+  const daysPassed = pregWeek * 7 + pregDay;
+  const daysLeft = Math.max(0, 280 - daysPassed);
+  const currentMonth = Math.floor(pregWeek / 4) + 1;
+  const today = new Date();
+  const formattedDate = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')} (${['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][today.getDay()]})`;
+
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-pink-100 text-pink-600 rounded-xl flex items-center justify-center">
+    <div className="flex-1 overflow-y-auto bg-[#FDFBF7]">
+      <div className="max-w-md mx-auto min-h-full pb-20 shadow-sm border-x border-[#E8DCCB] bg-white">
+        
+        {/* Baby Simulation Dashboard */}
+        <div className="relative pt-6 px-6">
+          
+          <div className="flex justify-center mb-6">
+             <div className="text-center font-bold text-gray-700 tracking-wider flex items-center gap-2">
+                {formattedDate} 
+                <span className="text-xs">▼</span>
+             </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-center gap-1 mb-6 mt-4">
+            <h3 className="text-[#8B7355] font-bold tracking-widest text-xs uppercase">today's</h3>
+            <span className="text-[#8B7355] font-bold text-xl">點點或麻糬</span>
+          </div>
+          
+          <div className="w-full aspect-square max-w-[320px] mx-auto rounded-full relative flex items-center justify-center mb-4">
+            <div className="absolute inset-0 bg-[#F4F9F9] rounded-full"></div>
+            
+            {/* Cute Baby Fetus Illustration Placeholder */}
+            <div className="relative z-10 flex flex-col items-center justify-center animate-pulse [animation-duration:4s]">
+               <img src={`https://image.pollinations.ai/prompt/extremely+simple+minimalist+cute+pale+orange+fetus+vector+illustration+white+background?width=400&height=400&nologo=true`} alt="Baby" className="w-32 h-32 object-contain mix-blend-multiply" />
+            </div>
+
+            {/* Floating Icons */}
+            <div className="absolute right-0 bottom-12 flex flex-col gap-4">
+              <div className="w-12 h-12 bg-[#FFF4E6] rounded-full shadow-sm flex items-center justify-center text-red-400 text-xl border border-amber-50 relative group cursor-pointer hover:scale-105 transition-transform">
+                <span className="absolute -top-6 text-[10px] text-gray-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">\ 推薦 /</span>
+                🎁
+              </div>
+              <div className="w-12 h-12 bg-[#FDE68A] text-[#B45309] rounded-full shadow-sm flex items-center justify-center text-xl cursor-pointer hover:scale-105 transition-transform">
+                ⭐
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 flex justify-between items-end w-full border-b-2 border-[#D4C4B7] pb-2 px-2">
+            <div className="text-[#5C4D43] font-bold text-xs">
+              距離出生<br/>還有
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-6xl font-black text-[#5C4D43] tracking-tighter leading-none">{daysLeft}</span>
+              <span className="text-[#5C4D43] font-bold text-sm">天</span>
+            </div>
+            <div className="text-right text-[#5C4D43] font-bold text-xs mt-2 relative top-1">
+              <div className="mb-0.5">第{daysPassed}天</div>
+              <div>{currentMonth}個月 ({pregWeek}週{pregDay}天)</div>
+            </div>
+          </div>
+
+          <div className="flex justify-center mt-6 mb-8">
+            <button className="px-12 py-3 bg-[#FFF9F0] text-[#8B7355] font-bold rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.05)] border border-[#E8DCCB] hover:bg-amber-50 hover:shadow-md transition">
+              今日建議
+            </button>
+          </div>
+        </div>
+
+        <div className="px-4 pb-8 space-y-6">
+          <div className="flex items-center justify-between bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-pink-100 text-pink-600 rounded-2xl flex items-center justify-center">
               <Camera className="w-6 h-6" />
             </div>
             <div>
@@ -173,5 +237,6 @@ export default function RecordsView({ pregWeek, pregDay }: RecordsViewProps) {
         </div>
       </div>
     </div>
+  </div>
   );
 }
