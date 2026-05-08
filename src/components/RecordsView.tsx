@@ -76,19 +76,19 @@ export default function RecordsView({
 
   const getFetusImagePrompt = (week: number) => {
     let size = "";
-    if (week <= 4) size = "tiny glowing embryo seed";
-    else if (week <= 8) size = "tiny bean sized fetus embryo";
-    else if (week <= 12) size = "tiny thumb sized fetus";
-    else if (week <= 16) size = "small palm sized fetus";
-    else if (week <= 20) size = "growing small baby fetus";
-    else if (week <= 24) size = "growing cute baby";
-    else if (week <= 28) size = "plump cute sleeping baby";
+    if (week <= 4) size = "fertilized egg or very early cell stage";
+    else if (week <= 8) size = "early embryo state, tiny and curved";
+    else if (week <= 12) size = "small fetus with developing features";
+    else if (week <= 16) size = "palm-sized fetus with distinct shape";
+    else if (week <= 20) size = "well-formed small baby fetus";
+    else if (week <= 24) size = "growing baby with visible limbs";
+    else if (week <= 28) size = "plump sleeping premature baby";
     else if (week <= 32) size = "chubby sleeping baby";
-    else if (week <= 36) size = "fully formed chubby sleeping baby";
-    else size = "newborn chubby sleeping baby";
+    else if (week <= 36) size = "fully developed sleeping baby";
+    else size = "newborn chubby baby ready to be born";
 
-    const prompt = `A hyper realistic 3d render of a ${size}, wearing a light blue whale shark costume hoodie with white polka dots, floating safely inside a transparent thin glass sphere, soft pastel studio lighting, highly detailed toy art, photorealistic, simple smooth perfectly round background, clean solid white backdrop, masterpiece`;
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=${week + 1500}`;
+    const prompt = `cute 3D toy art style ${size}, wearing a light blue whale shark costume with white polka dots, simple circular background, pure white backdrop, centered, macro photography, high quality, smooth, showing embryo development stage`;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=888${week}`;
   };
 
   const handleDateSubmit = (e: React.FormEvent) => {
