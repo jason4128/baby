@@ -75,18 +75,20 @@ export default function RecordsView({
   const formattedDate = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")} (${["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][today.getDay()]})`;
 
   const getFetusImagePrompt = (week: number) => {
-    let stage = "";
-    if (week > 0 && week <= 8)
-      stage = "tiny round embryo bean size, sitting";
-    else if (week > 8 && week <= 16)
-      stage = "small chubby baby size, sitting";
-    else if (week > 16 && week <= 28)
-      stage = "toddler size, sitting and playing";
-    else if (week > 28)
-      stage = "fat chubby cute baby size, sitting happily";
+    let size = "";
+    if (week <= 4) size = "tiny glowing embryo seed";
+    else if (week <= 8) size = "tiny bean sized fetus embryo";
+    else if (week <= 12) size = "tiny thumb sized fetus";
+    else if (week <= 16) size = "small palm sized fetus";
+    else if (week <= 20) size = "growing small baby fetus";
+    else if (week <= 24) size = "growing cute baby";
+    else if (week <= 28) size = "plump cute sleeping baby";
+    else if (week <= 32) size = "chubby sleeping baby";
+    else if (week <= 36) size = "fully formed chubby sleeping baby";
+    else size = "newborn chubby sleeping baby";
 
-    const prompt = `cute kawaii chibi plump kitten with grey stripes and round black eyes, wearing a light blue whale shark costume hoodie with white polka dots, ${stage}, 3d art toy style, flat white background, smooth, clean`;
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=${week + 1200}`;
+    const prompt = `A hyper realistic 3d render of a ${size}, wearing a light blue whale shark costume hoodie with white polka dots, floating safely inside a transparent thin glass sphere, soft pastel studio lighting, highly detailed toy art, photorealistic, simple smooth perfectly round background, clean solid white backdrop, masterpiece`;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=${week + 1500}`;
   };
 
   const handleDateSubmit = (e: React.FormEvent) => {
@@ -149,11 +151,11 @@ export default function RecordsView({
           <div className="w-full aspect-square max-w-[320px] mx-auto relative flex items-center justify-center mb-4">
             <div className="absolute inset-0 rounded-full shadow-sm border border-amber-50 overflow-hidden bg-white">
               {/* Cute Baby Fetus Illustration */}
-              <div className="relative w-full h-full flex flex-col items-center justify-center">
+              <div className="relative w-full h-full flex flex-col items-center justify-center p-2">
                 <img
                   src={getFetusImagePrompt(pregWeek)}
                   alt="Baby"
-                  className="w-full h-full object-cover scale-110 mix-blend-darken"
+                  className="w-full h-full object-contain rounded-full shadow-inner"
                 />
               </div>
             </div>

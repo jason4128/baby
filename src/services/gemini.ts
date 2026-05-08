@@ -51,7 +51,7 @@ export async function chatWithConsultant(
 
     const ai = getGeminiClient();
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
+      model: "gemini-2.5-flash",
       contents: contents as any,
       config: {
         systemInstruction: context,
