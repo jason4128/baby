@@ -429,9 +429,16 @@ export default function App() {
 
             {/* API Key */}
             <div className="mt-8 pt-6 border-t border-amber-100">
-              <h3 className="text-sm font-bold text-[#5C4D43] mb-3 flex items-center gap-2">Gemini API Key</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-[#5C4D43] flex items-center gap-2">Gemini API Key</h3>
+                {getGeminiKey() ? (
+                  <span className="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-bold">已啟用</span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">未設定 (使用系統預設)</span>
+                )}
+              </div>
               <p className="text-sm text-amber-800/70 mb-3">
-                部署至 GitHub Pages 等外部平台時，請輸入您的 Gemini API Key 以啟用 AI 顧問功能。（您的 Key 將只會存在您的瀏覽器中）
+                部署至 GitHub Pages 等外部平台時，請輸入您的 Gemini API Key 以啟用 AI 顧問功能。（您的 Key 將只會存在您的瀏覽器中，不會上傳至伺服器）
               </p>
               <div className="flex gap-2">
                 <input 
@@ -443,8 +450,15 @@ export default function App() {
                 />
                 <button 
                   onClick={() => {
-                     setGeminiKey(geminiKeyInput);
-                     alert(' API Key 已儲存至瀏覽器！');
+                    if (!geminiKeyInput.trim()) {
+                      setGeminiKey('');
+                      alert('已清除自訂 API Key，系統將嘗試使用預設金鑰。');
+                    } else {
+                      setGeminiKey(geminiKeyInput);
+                      alert('✅ API Key 已儲存至瀏覽器！顧問功能現在將使用您的金鑰。');
+                    }
+                    // Refresh current key input display
+                    setGeminiKeyInput(getGeminiKey() || '');
                   }} 
                   className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition-colors shrink-0">
                   儲存金鑰

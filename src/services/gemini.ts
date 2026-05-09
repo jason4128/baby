@@ -50,23 +50,27 @@ export async function chatWithConsultant(
     ];
 
     const ai = getGeminiClient();
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+    const response = await ai.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      systemInstruction: context,
+    }).generateContent({
       contents: contents as any,
-      config: {
-        systemInstruction: context,
+      generationConfig: {
         temperature: 0.7,
         responseMimeType: "application/json",
       }
     });
 
+    const result = await response.response;
+    const text = result.text();
+
     try {
-      if (response.text) {
-        return JSON.parse(response.text);
+      if (text) {
+        return JSON.parse(text);
       }
     } catch (e) {
       console.error("JSON parse error:", e);
-      return { consultantReply: response.text || "", recipes: [], shoppingItems: [] };
+      return { consultantReply: text || "", recipes: [], shoppingItems: [] };
     }
     return { consultantReply: "No response text", recipes: [], shoppingItems: [] };
   } catch (error) {
