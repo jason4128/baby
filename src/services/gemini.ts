@@ -1,11 +1,11 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 export function getGeminiKey() {
   // Try to get from localStorage first, fallback to process.env
   try {
-    return localStorage.getItem("GEMINI_API_KEY") || process.env.GEMINI_API_KEY || "";
+    return localStorage.getItem("GEMINI_API_KEY") || import.meta.env.VITE_GEMINI_API_KEY || "";
   } catch (e) {
-    return process.env.GEMINI_API_KEY || "";
+    return "";
   }
 }
 
@@ -26,7 +26,7 @@ function getGeminiClient() {
   if (!apiKey) {
     throw new Error("請先在側邊欄設定您的 Gemini API Key！");
   }
-  return new GoogleGenerativeAI(apiKey);
+  return new GoogleGenAI({ apiKey });
 }
 
 export async function chatWithConsultant(
@@ -37,34 +37,50 @@ export async function chatWithConsultant(
 ) {
   try {
     const ai = getGeminiClient();
-    const model = ai.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      systemInstruction: context,
+    
+    // Transform history to match new SDK structure if needed
+    // But startChat isn't straightforward with custom parts in the new SDK sometimes.
+    // Actually we can just build the parts array.
+    const chat = ai.chats.create({
+      model: "gemini-3-flash-preview",
+      config: {
+        systemInstruction: context,
+        temperature: 0.7,
+        responseMimeType: "application/json",
+      }
     });
 
-    const chatHistory = history.map(h => ({
+    // If there's history, we might need to recreate the chat history manually or just pass it as single request
+    // Since we maintain history ourselves, we can just use generateContent instead of startChat, 
+    // or just pass the whole contents array.
+    const contents: any[] = history.map(h => ({
       role: h.role,
       parts: h.parts
     }));
-
-    const chat = model.startChat({
-      history: chatHistory,
-      generationConfig: {
-        temperature: 0.7,
-        responseMimeType: "application/json",
-      },
-    });
-
-    const promptParts = [
+    
+    const currentMessageParts: any[] = [
       ...base64Images.map((img) => ({
         inlineData: { mimeType: img.mimeType, data: img.data }
       })),
       { text: newMessage }
     ];
+    
+    contents.push({
+      role: "user",
+      parts: currentMessageParts
+    });
 
-    const result = await chat.sendMessage(promptParts);
-    const response = await result.response;
-    const text = response.text();
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: contents,
+      config: {
+        systemInstruction: context,
+        temperature: 0.7,
+        responseMimeType: "application/json",
+      }
+    });
+
+    const text = response.text;
 
     try {
       if (text) {
