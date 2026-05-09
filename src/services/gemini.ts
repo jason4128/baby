@@ -1,11 +1,11 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export function getGeminiKey() {
   // Try to get from localStorage first, fallback to process.env
   try {
-    return localStorage.getItem("GEMINI_API_KEY") || process.env.GEMINI_API_KEY;
+    return localStorage.getItem("GEMINI_API_KEY") || process.env.GEMINI_API_KEY || "";
   } catch (e) {
-    return process.env.GEMINI_API_KEY;
+    return process.env.GEMINI_API_KEY || "";
   }
 }
 
@@ -26,7 +26,7 @@ function getGeminiClient() {
   if (!apiKey) {
     throw new Error("請先在側邊欄設定您的 Gemini API Key！");
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenerativeAI(apiKey);
 }
 
 export async function chatWithConsultant(
@@ -36,33 +36,35 @@ export async function chatWithConsultant(
   base64Images: { mimeType: string; data: string }[] = []
 ) {
   try {
-    const contents = [
-      ...history,
-      {
-        role: "user",
-        parts: [
-          ...base64Images.map((img) => ({
-             inlineData: { mimeType: img.mimeType, data: img.data }
-          })),
-          { text: newMessage }
-        ]
-      }
-    ];
-
     const ai = getGeminiClient();
-    const response = await ai.getGenerativeModel({
+    const model = ai.getGenerativeModel({
       model: "gemini-1.5-flash",
       systemInstruction: context,
-    }).generateContent({
-      contents: contents as any,
+    });
+
+    const chatHistory = history.map(h => ({
+      role: h.role,
+      parts: h.parts
+    }));
+
+    const chat = model.startChat({
+      history: chatHistory,
       generationConfig: {
         temperature: 0.7,
         responseMimeType: "application/json",
-      }
+      },
     });
 
-    const result = await response.response;
-    const text = result.text();
+    const promptParts = [
+      ...base64Images.map((img) => ({
+        inlineData: { mimeType: img.mimeType, data: img.data }
+      })),
+      { text: newMessage }
+    ];
+
+    const result = await chat.sendMessage(promptParts);
+    const response = await result.response;
+    const text = response.text();
 
     try {
       if (text) {

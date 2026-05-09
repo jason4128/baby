@@ -41,6 +41,20 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
     setModalConfig(prev => ({ ...prev, show: false }));
   };
 
+  const [shoppingItems, setShoppingItems] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    const q = query(collection(db, 'shoppingItems'), where('userId', '==', auth.currentUser.uid), where('isPurchased', '==', false));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map(doc => doc.data().name.toLowerCase());
+      setShoppingItems(items);
+    }, (error) => {
+      console.error("Error fetching shopping items:", error);
+    });
+    return () => unsubscribe();
+  }, [auth.currentUser?.uid]);
+
   const checkIngredientsStatus = async () => {
     if (!selectedRecipe || !auth.currentUser) return;
     
@@ -48,9 +62,13 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
     setCheckStatus('checking');
 
     const allInventory = [...tools, ...seasonings, ...ingredients].map(i => i.toLowerCase());
+    
+    // Check missing ingredients but filter out those ALREADY in the shopping list
     const missingIngredients = selectedRecipe.ingredients.filter(recipeIng => {
       const name = recipeIng.name.toLowerCase();
-      return !allInventory.some(inv => name.includes(inv) || inv.includes(name));
+      const inInventory = allInventory.some(inv => name.includes(inv) || inv.includes(name));
+      const inShoppingList = shoppingItems.some(item => name.includes(item) || item.includes(name));
+      return !inInventory && !inShoppingList;
     });
 
     if (missingIngredients.length > 0) {

@@ -15,7 +15,7 @@ import LoginView from './components/LoginView';
 
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot, getDocs } from 'firebase/firestore';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -31,11 +31,42 @@ export default function App() {
   const [newIngredient, setNewIngredient] = useState('');
   const [geminiKeyInput, setGeminiKeyInput] = useState(() => getGeminiKey() || '');
 
-  const [messages, setMessages] = useState<{ role: 'user' | 'model'; parts: { text: string; inlineData?: any }[] }[]>([]);
+  const [messages, setMessages] = useState<{ 
+    role: 'user' | 'model'; 
+    parts: { text: string; inlineData?: any }[];
+    suggestions?: {
+      recipes: any[];
+      shoppingItems: any[];
+    };
+    saved?: boolean;
+  }[]>([]);
   const [input, setInput] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
+  
+  // Custom Modal State
+  const [modalConfig, setModalConfig] = useState<{
+    show: boolean;
+    title: string;
+    message: string | React.ReactNode;
+    onConfirm?: () => void;
+    type: 'confirm' | 'alert';
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    type: 'alert'
+  });
+
+  const showModal = (title: string, message: string | React.ReactNode, type: 'confirm' | 'alert' = 'alert', onConfirm?: () => void) => {
+    setModalConfig({ show: true, title, message, type, onConfirm });
+  };
+
+  const closeModals = () => {
+    setModalConfig(prev => ({ ...prev, show: false }));
+  };
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   
   const [pregWeek, setPregWeek] = useState(0);
@@ -172,6 +203,81 @@ export default function App() {
     saveToFirebase({ ingredients: is });
   };
 
+  const handleSaveRecipe = async (msgIdx: number, recipe: any) => {
+    if (!user) return;
+    try {
+      await addDoc(collection(db, 'recipes'), {
+        userId: user.uid,
+        title: recipe.title || '無標題',
+        category: recipe.category || 'AI 生成',
+        description: recipe.description || '',
+        imageUrl: `https://image.pollinations.ai/prompt/A+delicious+dish,+realistic+food+photography+of+meal+${encodeURIComponent(recipe.title || 'delicious food')}?width=800&height=600&nologo=true`,
+        ingredients: recipe.ingredients || [],
+        steps: recipe.steps || [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      
+      // Update message state to show it was saved
+      const newMessages = [...messages];
+      if (newMessages[msgIdx].suggestions) {
+        newMessages[msgIdx].suggestions!.recipes = newMessages[msgIdx].suggestions!.recipes.filter(r => r !== recipe);
+      }
+      setMessages(newMessages);
+      showModal('✅ 已儲存食譜', `已將【${recipe.title}】存入專屬食譜區！`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, 'recipes');
+    }
+  };
+
+  const handleSaveShoppingItem = async (msgIdx: number, item: any) => {
+    if (!user) return;
+    try {
+      // Quick duplicate check: Fetch pending items to see if this one (or similar) exists
+      // For simplicity and speed, we check for an exact lowercase name match or containment
+      const lowerName = (item.name || '').toLowerCase();
+      
+      const q = query(
+        collection(db, 'shoppingItems'), 
+        where('userId', '==', user.uid), 
+        where('isPurchased', '==', false),
+        where('name', '==', item.name)
+      );
+      
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        showModal('已在清單中', `【${item.name}】已經在您的採購清單中了！`);
+        // Still remove from suggestions to clean up UI
+        const newMessages = [...messages];
+        if (newMessages[msgIdx].suggestions) {
+          newMessages[msgIdx].suggestions!.shoppingItems = newMessages[msgIdx].suggestions!.shoppingItems.filter(i => i !== item);
+        }
+        setMessages(newMessages);
+        return;
+      }
+      
+      await addDoc(collection(db, 'shoppingItems'), {
+        userId: user.uid,
+        name: item.name || '未命名',
+        category: item.category || '採購建議',
+        isPurchased: false,
+        suggestedWeek: item.suggestedWeek || pregWeek,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      
+      const newMessages = [...messages];
+      if (newMessages[msgIdx].suggestions) {
+        newMessages[msgIdx].suggestions!.shoppingItems = newMessages[msgIdx].suggestions!.shoppingItems.filter(i => i !== item);
+      }
+      setMessages(newMessages);
+      showModal('🛒 已加入清單', `已將【${item.name}】加入採購清單！`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, 'shoppingItems');
+    }
+  };
+
   const handleSend = async () => {
     if (!input.trim() && images.length === 0) return;
     
@@ -198,6 +304,15 @@ export default function App() {
       setImages([]);
 
       // Generate dynamic prompt
+      // Generate dynamic prompt and attach inventory context directly to the user message for the AI's current awareness
+      const inventoryContext = `
+系統庫存資訊：
+- 工具：${tools.length > 0 ? tools.join('、') : '目前無紀錄'}
+- 調味：${seasonings.length > 0 ? seasonings.join('、') : '目前無紀錄'}
+- 食材料：${ingredients.length > 0 ? ingredients.join('、') : '目前無紀錄'}
+(請優先根據現有食材提供建議，若食材不足請在回覆中建議採購，並放入 shoppingItems 陣列)
+`;
+
       const systemPrompt = BASE_SYSTEM_PROMPT
         .replace('{tools}', tools.join('、'))
         .replace('{seasonings}', seasonings.join('、'))
@@ -205,60 +320,22 @@ export default function App() {
         .replace('{week}', pregWeek.toString())
         .replace('{day}', pregDay.toString());
 
-      const responseObj: any = await chatWithConsultant(systemPrompt, messages, input, base64Images);
+      const responseObj: any = await chatWithConsultant(systemPrompt, messages, input + "\n\n" + inventoryContext, base64Images);
       
       let replyText = "";
       if (responseObj.consultantReply) {
         replyText = responseObj.consultantReply;
       }
       
-      // Only auto-add if there's clear intent in input or if it's an image upload (implies ingestion)
-      const hasExplicitIntent = /存|加|買|收|錄|save|add|buy|recipe|list/.test(input.toLowerCase());
-      const isImageIngestion = images.length > 0;
-      const shouldAutoProcess = hasExplicitIntent || isImageIngestion;
-
-      if (shouldAutoProcess && responseObj.recipes && Array.isArray(responseObj.recipes) && user) {
-        // save recipes to db
-        for (const r of responseObj.recipes) {
-          try {
-            await addDoc(collection(db, 'recipes'), {
-              userId: user.uid,
-              title: r.title || '無標題',
-              category: r.category || 'AI 生成',
-              description: r.description || '',
-              imageUrl: `https://image.pollinations.ai/prompt/A+delicious+dish,+realistic+food+photography+of+meal+${encodeURIComponent(r.title || 'delicious food')}?width=800&height=600&nologo=true`,
-              ingredients: r.ingredients || [],
-              steps: r.steps || [],
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            });
-            replyText += `\n\n📌 已將【${r.title}】存入專屬食譜區！`;
-          } catch(e) {
-            handleFirestoreError(e, OperationType.CREATE, 'recipes');
-          }
+      // Pass all generated items to suggestions, UI will handle display
+      setMessages([...updatedHistory, { 
+        role: 'model', 
+        parts: [{ text: replyText || '沒有回覆文字' }],
+        suggestions: {
+          recipes: Array.isArray(responseObj.recipes) ? responseObj.recipes : [],
+          shoppingItems: Array.isArray(responseObj.shoppingItems) ? responseObj.shoppingItems : []
         }
-      }
-
-      if (shouldAutoProcess && responseObj.shoppingItems && Array.isArray(responseObj.shoppingItems) && user) {
-        for (const item of responseObj.shoppingItems) {
-          try {
-            await addDoc(collection(db, 'shoppingItems'), {
-              userId: user.uid,
-              name: item.name || '未命名',
-              category: item.category || '採購建議',
-              isPurchased: false,
-              suggestedWeek: item.suggestedWeek || pregWeek,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            });
-            replyText += `\n\n🛒 已將【${item.name}】加入採購清單！`;
-          } catch(e) {
-            handleFirestoreError(e, OperationType.CREATE, 'shoppingItems');
-          }
-        }
-      }
-
-      setMessages([...updatedHistory, { role: 'model', parts: [{ text: replyText || '沒有回覆文字' }] }]);
+      }]);
     } catch (e: any) {
       console.error(e);
       let errorMsg = '⚠️ 顧問系統遇到錯誤，請確認網路或 API KEY 設定後再試一次。';
@@ -452,10 +529,10 @@ export default function App() {
                   onClick={() => {
                     if (!geminiKeyInput.trim()) {
                       setGeminiKey('');
-                      alert('已清除自訂 API Key，系統將嘗試使用預設金鑰。');
+                      showModal('API Key 已清除', '已清除自訂 API Key，系統將嘗試使用預設金鑰。');
                     } else {
                       setGeminiKey(geminiKeyInput);
-                      alert('✅ API Key 已儲存至瀏覽器！顧問功能現在將使用您的金鑰。');
+                      showModal('✅ API Key 已儲存', 'API Key 已儲存至瀏覽器！顧問功能現在將使用您的金鑰。');
                     }
                     // Refresh current key input display
                     setGeminiKeyInput(getGeminiKey() || '');
@@ -547,8 +624,38 @@ export default function App() {
                     }
                     if (p.text && m.role === 'model') {
                       return (
-                        <div className="markdown-body text-sm font-medium leading-relaxed" key={pIdx}>
-                          <Markdown remarkPlugins={[remarkGfm]}>{p.text}</Markdown>
+                        <div key={pIdx}>
+                          <div className="markdown-body text-sm font-medium leading-relaxed">
+                            <Markdown remarkPlugins={[remarkGfm]}>{p.text}</Markdown>
+                          </div>
+                          
+                          {(m.suggestions?.recipes.length! > 0 || m.suggestions?.shoppingItems.length! > 0) && (
+                            <div className="mt-4 pt-4 border-t border-amber-50 space-y-3">
+                              <p className="text-[10px] font-bold text-amber-900/40 uppercase tracking-widest">顧問建議動作</p>
+                              <div className="flex flex-wrap gap-2">
+                                {m.suggestions?.recipes.map((r, rIdx) => (
+                                  <button 
+                                    key={rIdx}
+                                    onClick={() => handleSaveRecipe(idx, r)}
+                                    className="px-3 py-2 bg-amber-50 text-amber-700 rounded-xl text-xs font-bold border border-amber-100 hover:bg-amber-100 transition-colors flex items-center gap-1.5"
+                                  >
+                                    <ChefHat className="w-3.5 h-3.5" />
+                                    存下食譜：{r.title}
+                                  </button>
+                                ))}
+                                {m.suggestions?.shoppingItems.map((s, sIdx) => (
+                                  <button 
+                                    key={sIdx}
+                                    onClick={() => handleSaveShoppingItem(idx, s)}
+                                    className="px-3 py-2 bg-orange-50 text-orange-700 rounded-xl text-xs font-bold border border-orange-100 hover:bg-orange-100 transition-colors flex items-center gap-1.5"
+                                  >
+                                    <ShoppingBag className="w-3.5 h-3.5" />
+                                    加入採購：{s.name}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )
                     }
@@ -714,6 +821,48 @@ export default function App() {
 
         {renderContent()}
       </main>
+
+      {/* Custom Modal */}
+      {modalConfig.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-[#5C4D43] mb-2">{modalConfig.title}</h3>
+              <div className="text-[#5C4D43]/80 leading-relaxed text-sm">
+                {modalConfig.message}
+              </div>
+            </div>
+            <div className="bg-amber-50/50 p-4 flex gap-3">
+              {modalConfig.type === 'confirm' ? (
+                <>
+                  <button
+                    onClick={closeModals}
+                    className="flex-1 py-3 px-4 rounded-xl font-bold text-[#5C4D43]/60 hover:bg-white transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => {
+                      modalConfig.onConfirm?.();
+                      closeModals();
+                    }}
+                    className="flex-1 py-3 px-4 rounded-xl font-bold bg-amber-600 text-white hover:bg-amber-700 transition-all shadow-md shadow-amber-200"
+                  >
+                    確定
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={closeModals}
+                  className="w-full py-3 px-4 rounded-xl font-bold bg-amber-600 text-white hover:bg-amber-700 transition-all shadow-md shadow-amber-200"
+                >
+                  我知道了
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
