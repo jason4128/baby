@@ -11,7 +11,10 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
 
   useEffect(() => {
     if (!auth.currentUser) return;
-    const q = query(collection(db, 'shoppingItems'), where('userId', '==', auth.currentUser.uid));
+    const isAdmin = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
+    const q = isAdmin 
+      ? query(collection(db, 'shoppingItems'))
+      : query(collection(db, 'shoppingItems'), where('userId', '==', auth.currentUser.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShoppingItem));
       // Sort by status, then suggested week
@@ -26,7 +29,7 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [auth.currentUser?.uid]);
 
   const togglePurchased = async (item: ShoppingItem) => {
     try {

@@ -4,6 +4,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // 0. Global Safety Net
     match /{document=**} {
+      allow read, write: if isAdmin();
       allow read, write: if false;
     }
 
@@ -14,6 +15,13 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        request.auth.uid == '9fJCbAnrFGeaG8IAOsUcp3XeUcf2' || 
+        request.auth.token.get('email', '') == 'jason2134@gmail.com' || 
+        request.auth.token.get('email', '') == 'user@gmail.com'
+      ); 
+    }
 
     // UserProfile Validations
     function isValidUserProfile(data) {
@@ -29,12 +37,12 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow get: if isSignedIn() && (isAdmin() || request.auth.uid == userId) && isValidId(userId);
       allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId)
                     && isValidUserProfile(incoming())
                     && incoming().createdAt == request.time
                     && incoming().updatedAt == request.time;
-      allow update: if isSignedIn() && request.auth.uid == userId && isValidId(userId)
+      allow update: if isSignedIn() && (isAdmin() || request.auth.uid == userId) && isValidId(userId)
                     && isValidUserProfile(incoming())
                     && incoming().createdAt == existing().createdAt
                     && incoming().updatedAt == request.time
@@ -56,19 +64,18 @@ service cloud.firestore {
     }
 
     match /recipes/{recipeId} {
-      allow get: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recipeId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recipeId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(recipeId)
                     && isValidRecipe(incoming())
                     && incoming().createdAt == request.time
                     && incoming().updatedAt == request.time;
-      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recipeId)
+      allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recipeId)
                     && isValidRecipe(incoming())
-                    && incoming().userId == existing().userId
                     && incoming().createdAt == existing().createdAt
                     && incoming().updatedAt == request.time
                     && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'description', 'imageUrl', 'ingredients', 'steps', 'updatedAt']);
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recipeId);
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recipeId);
     }
 
     // BabyRecord Validations
@@ -85,12 +92,12 @@ service cloud.firestore {
     }
 
     match /records/{recordId} {
-      allow get: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recordId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recordId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(recordId)
                     && isValidBabyRecord(incoming())
                     && incoming().createdAt == request.time;
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid && isValidId(recordId);
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recordId);
     }
 
     // ShoppingItem Validations
@@ -106,19 +113,18 @@ service cloud.firestore {
     }
 
     match /shoppingItems/{itemId} {
-      allow get: if isSignedIn() && existing().userId == request.auth.uid && isValidId(itemId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(itemId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(itemId)
                     && isValidShoppingItem(incoming())
                     && incoming().createdAt == request.time
                     && incoming().updatedAt == request.time;
-      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidId(itemId)
+      allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(itemId)
                     && isValidShoppingItem(incoming())
-                    && incoming().userId == existing().userId
                     && incoming().createdAt == existing().createdAt
                     && incoming().updatedAt == request.time
                     && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'isPurchased', 'suggestedWeek', 'updatedAt']);
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid && isValidId(itemId);
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(itemId);
     }
   }
 }

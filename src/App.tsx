@@ -57,27 +57,29 @@ export default function App() {
         try {
           const docRef = doc(db, 'users', u.uid);
           const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setTools(data.tools || []);
-            setSeasonings(data.seasonings || []);
-            setIngredients(data.ingredients || []);
-            if (data.conceptionDate) {
-              setConceptionDate(new Date(data.conceptionDate));
-            }
-          } else {
-            try {
-              await setDoc(docRef, {
-                userId: u.uid,
-                tools: INITIAL_TOOLS,
-                seasonings: INITIAL_SEASONINGS,
-                ingredients: INITIAL_INGREDIENTS,
-                conceptionDate: CONCEPTION_DATE.toISOString(),
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-              });
-            } catch (createErr) {
-              handleFirestoreError(createErr, OperationType.CREATE, `users/${u.uid}`);
+          
+          let currentUserData = docSnap.exists() ? docSnap.data() : null;
+
+          if (!docSnap.exists()) {
+            await setDoc(docRef, {
+              userId: u.uid,
+              tools: INITIAL_TOOLS,
+              seasonings: INITIAL_SEASONINGS,
+              ingredients: INITIAL_INGREDIENTS,
+              conceptionDate: CONCEPTION_DATE.toISOString(),
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            });
+            const newSnap = await getDoc(docRef);
+            if (newSnap.exists()) currentUserData = newSnap.data();
+          }
+
+          if (currentUserData) {
+            setTools(currentUserData.tools || []);
+            setSeasonings(currentUserData.seasonings || []);
+            setIngredients(currentUserData.ingredients || []);
+            if (currentUserData.conceptionDate) {
+              setConceptionDate(new Date(currentUserData.conceptionDate));
             }
           }
         } catch (e) {

@@ -34,7 +34,10 @@ export default function RecipesView() {
 
   useEffect(() => {
     if (!auth.currentUser) return;
-    const q = query(collection(db, 'recipes'), where('userId', '==', auth.currentUser.uid));
+    const isAdmin = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
+    const q = isAdmin
+      ? query(collection(db, 'recipes'))
+      : query(collection(db, 'recipes'), where('userId', '==', auth.currentUser.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedRecipes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Recipe));
       setRecipes(fetchedRecipes);
@@ -43,7 +46,7 @@ export default function RecipesView() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [auth.currentUser?.uid]);
 
   const getImageUrl = (recipe: Recipe) => {
     if (!recipe.imageUrl || recipe.imageUrl.includes('unsplash') || recipe.imageUrl.includes('cute+japanese') || recipe.imageUrl.includes('top+down+view')) {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Camera,
   Image as ImageIcon,
@@ -9,15 +9,29 @@ import {
   Baby,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
+import { 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  serverTimestamp, 
+  orderBy 
+} from 'firebase/firestore';
 
 export type RecordEntry = {
   id: string;
   date: string;
-  type: "image" | "video";
+  type: "image" | "video" | "text";
   url: string;
   note: string;
   weekCount: number;
   dayCount: number;
+  userId: string;
+  createdAt: any;
 };
 
 interface RecordsViewProps {
@@ -39,33 +53,67 @@ export default function RecordsView({
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [note, setNote] = useState("");
 
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    
+    const isAdmin = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
+    const q = isAdmin
+      ? query(collection(db, 'records'), orderBy('createdAt', 'desc'))
+      : query(collection(db, 'records'), where('userId', '==', auth.currentUser.uid), orderBy('createdAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedRecords = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      } as RecordEntry));
+      setRecords(fetchedRecords);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'records');
+    });
+
+    return () => unsubscribe();
+  }, [auth.currentUser?.uid]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setMediaFile(e.target.files[0]);
     }
   };
 
-  const handleAddRecord = () => {
-    if (!mediaFile && !note.trim()) return;
+  const handleAddRecord = async () => {
+    if (!auth.currentUser || (!mediaFile && !note.trim())) return;
 
-    const newRecord: RecordEntry = {
-      id: Date.now().toString(),
-      date: new Date().toISOString(),
-      type: mediaFile?.type.startsWith("video") ? "video" : "image",
-      url: mediaFile ? URL.createObjectURL(mediaFile) : "",
-      note: note.trim(),
-      weekCount: pregWeek,
-      dayCount: pregDay,
-    };
+    try {
+      // Note: Real file persistence would require Firebase Storage.
+      // Here we use ObjectURL for the current session, but it won't persist across reloads.
+      // For a production app, we would upload to Storage and save the URL.
+      const url = mediaFile ? URL.createObjectURL(mediaFile) : "";
+      
+      await addDoc(collection(db, 'records'), {
+        userId: auth.currentUser.uid,
+        date: new Date().toISOString(),
+        type: mediaFile?.type.startsWith("video") ? "video" : (mediaFile ? "image" : "text"),
+        url: url,
+        note: note.trim(),
+        weekCount: pregWeek,
+        dayCount: pregDay,
+        createdAt: serverTimestamp()
+      });
 
-    setRecords([newRecord, ...records]);
-    setIsAdding(false);
-    setMediaFile(null);
-    setNote("");
+      setIsAdding(false);
+      setMediaFile(null);
+      setNote("");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, 'records');
+    }
   };
 
-  const removeRecord = (id: string) => {
-    setRecords(records.filter((r) => r.id !== id));
+  const removeRecord = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'records', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `records/${id}`);
+    }
   };
 
   const daysPassed = pregWeek * 7 + pregDay;
