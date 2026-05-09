@@ -15,7 +15,7 @@ import LoginView from './components/LoginView';
 
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -51,15 +51,15 @@ export default function App() {
   }, [conceptionDate]);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
+    let unsubscribeSnapshot: (() => void) | null = null;
+
+    const authUnsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setUser(u);
         try {
           const docRef = doc(db, 'users', u.uid);
           const docSnap = await getDoc(docRef);
           
-          let currentUserData = docSnap.exists() ? docSnap.data() : null;
-
           if (!docSnap.exists()) {
             await setDoc(docRef, {
               userId: u.uid,
@@ -70,29 +70,42 @@ export default function App() {
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             });
-            const newSnap = await getDoc(docRef);
-            if (newSnap.exists()) currentUserData = newSnap.data();
           }
 
-          if (currentUserData) {
-            setTools(currentUserData.tools || []);
-            setSeasonings(currentUserData.seasonings || []);
-            setIngredients(currentUserData.ingredients || []);
-            if (currentUserData.conceptionDate) {
-              setConceptionDate(new Date(currentUserData.conceptionDate));
+          // Real-time listener for user document
+          unsubscribeSnapshot = onSnapshot(docRef, (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.data();
+              setTools(data.tools || []);
+              setSeasonings(data.seasonings || []);
+              setIngredients(data.ingredients || []);
+              if (data.conceptionDate) {
+                setConceptionDate(new Date(data.conceptionDate));
+              }
+              setIsAuthLoading(false);
             }
-          }
+          }, (err) => {
+            handleFirestoreError(err, OperationType.GET, `users/${u.uid}`);
+          });
+
         } catch (e) {
           handleFirestoreError(e, OperationType.GET, `users/${u.uid}`);
-        } finally {
           setIsAuthLoading(false);
         }
       } else {
         setUser(null);
+        if (unsubscribeSnapshot) {
+          unsubscribeSnapshot();
+          unsubscribeSnapshot = null;
+        }
         setIsAuthLoading(false);
       }
     });
-    return () => unsub();
+
+    return () => {
+      authUnsub();
+      if (unsubscribeSnapshot) unsubscribeSnapshot();
+    };
   }, []);
 
   const saveToFirebase = async (updates: any) => {
@@ -199,7 +212,12 @@ export default function App() {
         replyText = responseObj.consultantReply;
       }
       
-      if (responseObj.recipes && Array.isArray(responseObj.recipes) && user) {
+      // Only auto-add if there's clear intent in input or if it's an image upload (implies ingestion)
+      const hasExplicitIntent = /存|加|買|收|錄|save|add|buy|recipe|list/.test(input.toLowerCase());
+      const isImageIngestion = images.length > 0;
+      const shouldAutoProcess = hasExplicitIntent || isImageIngestion;
+
+      if (shouldAutoProcess && responseObj.recipes && Array.isArray(responseObj.recipes) && user) {
         // save recipes to db
         for (const r of responseObj.recipes) {
           try {
@@ -214,14 +232,14 @@ export default function App() {
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             });
-            replyText += `\n\n📌 已將【${r.title}】自動存入專屬食譜區！`;
+            replyText += `\n\n📌 已將【${r.title}】存入專屬食譜區！`;
           } catch(e) {
             handleFirestoreError(e, OperationType.CREATE, 'recipes');
           }
         }
       }
 
-      if (responseObj.shoppingItems && Array.isArray(responseObj.shoppingItems) && user) {
+      if (shouldAutoProcess && responseObj.shoppingItems && Array.isArray(responseObj.shoppingItems) && user) {
         for (const item of responseObj.shoppingItems) {
           try {
             await addDoc(collection(db, 'shoppingItems'), {
@@ -241,9 +259,15 @@ export default function App() {
       }
 
       setMessages([...updatedHistory, { role: 'model', parts: [{ text: replyText || '沒有回覆文字' }] }]);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setMessages(prev => [...prev, { role: 'model', parts: [{ text: '⚠️ 顧問系統遇到錯誤，請確認網路或 API KEY 設定後再試一次。' }] }]);
+      let errorMsg = '⚠️ 顧問系統遇到錯誤，請確認網路或 API KEY 設定後再試一次。';
+      if (e?.message?.includes('quota') || e?.message?.includes('429')) {
+        errorMsg = '⚠️ AI 額度已達上限（Quota Exceeded）。如果您是使用自己的 API Key，請檢查 Google AI Studio 的帳單或額度設定；如果是使用系統預設 Key，請稍候再試或在「廚備設定」中設定您自己的 API Key。';
+      } else if (e?.message?.includes('API key not valid') || e?.message?.includes('401')) {
+        errorMsg = '⚠️ API KEY 無效。請前往「廚備設定」重新檢查並儲存您的 Gemini API Key。';
+      }
+      setMessages(prev => [...prev, { role: 'model', parts: [{ text: errorMsg }] }]);
     } finally {
       setIsLoading(false);
     }
@@ -297,7 +321,7 @@ export default function App() {
   };
 
   const renderContent = () => {
-    if (activeTab === 'recipes') return <RecipesView />;
+    if (activeTab === 'recipes') return <RecipesView tools={tools} seasonings={seasonings} ingredients={ingredients} pregWeek={pregWeek} />;
     if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} />;
     if (activeTab === 'shopping') return <ShoppingView pregWeek={pregWeek} />;
     if (activeTab === 'settings') return (

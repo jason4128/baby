@@ -1,14 +1,84 @@
 import React, { useState, useEffect } from 'react';
 import { Recipe } from '../types';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { ChefHat, ChevronRight, ArrowLeft, Image as ImageIcon, RefreshCcw } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, deleteDoc, addDoc } from 'firebase/firestore';
+import { ChefHat, ChevronRight, ArrowLeft, Image as ImageIcon, RefreshCcw, CheckCircle2, ShoppingCart, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-export default function RecipesView() {
+interface RecipesViewProps {
+  tools?: string[];
+  seasonings?: string[];
+  ingredients?: string[];
+  pregWeek?: number;
+}
+
+export default function RecipesView({ tools = [], seasonings = [], ingredients = [], pregWeek = 0 }: RecipesViewProps) {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkStatus, setCheckStatus] = useState<'idle' | 'checking' | 'done'>('idle');
+
+  const checkIngredientsStatus = async () => {
+    if (!selectedRecipe || !auth.currentUser) return;
+    
+    setIsChecking(true);
+    setCheckStatus('checking');
+
+    const allInventory = [...tools, ...seasonings, ...ingredients].map(i => i.toLowerCase());
+    const missingIngredients = selectedRecipe.ingredients.filter(recipeIng => {
+      const name = recipeIng.name.toLowerCase();
+      // Check if any inventory item is contained in the ingredient name or vice versa
+      return !allInventory.some(inv => name.includes(inv) || inv.includes(name));
+    });
+
+    if (missingIngredients.length > 0) {
+      const confirmMsg = `發現缺失食材：\n${missingIngredients.map(i => `• ${i.name}`).join('\n')}\n\n確定要將這些食材加入採購清單嗎？`;
+      if (!window.confirm(confirmMsg)) {
+        setIsChecking(false);
+        setCheckStatus('idle');
+        return;
+      }
+
+      try {
+        for (const ing of missingIngredients) {
+          // Detect category (similar logic to ShoppingView)
+          let category = '食材';
+          const lowerName = ing.name.toLowerCase();
+          
+          const seasoningKeywords = ['醬', '油', '鹽', '糖', '醋', '粉', '精', '味', '胡椒', '咖哩', '味噌', '露', '草'];
+          const toolKeywords = ['鍋', '鏟', '機', '秤', '盒', '切', '磨', '盤', '夾', '刷', '刀', '板', '勺', '碗'];
+          
+          if (seasoningKeywords.some(k => lowerName.includes(k))) {
+            category = '調味料';
+          } else if (toolKeywords.some(k => lowerName.includes(k))) {
+            category = '工具';
+          }
+          
+          await addDoc(collection(db, 'shoppingItems'), {
+            userId: auth.currentUser.uid,
+            name: ing.name,
+            category: category,
+            isPurchased: false,
+            suggestedWeek: pregWeek,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        }
+        alert(`已將 ${missingIngredients.length} 項缺失食材加入採購清單！`);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, 'shoppingItems');
+      }
+    } else {
+      alert('所有食材皆已在您的廚備庫存中！');
+    }
+    
+    setCheckStatus('done');
+    setTimeout(() => {
+      setIsChecking(false);
+      setCheckStatus('idle');
+    }, 2000);
+  };
 
   const handleRegenerateImage = async () => {
     if (!selectedRecipeId) return;
@@ -48,6 +118,17 @@ export default function RecipesView() {
     return () => unsubscribe();
   }, [auth.currentUser?.uid]);
 
+  const deleteRecipe = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!window.confirm('確定要刪除這份食譜嗎？')) return;
+    try {
+      await deleteDoc(doc(db, 'recipes', id));
+      if (selectedRecipeId === id) setSelectedRecipeId(null);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `recipes/${id}`);
+    }
+  };
+
   const getImageUrl = (recipe: Recipe) => {
     if (!recipe.imageUrl || recipe.imageUrl.includes('unsplash') || recipe.imageUrl.includes('cute+japanese') || recipe.imageUrl.includes('top+down+view')) {
       return `https://image.pollinations.ai/prompt/A+delicious+dish,+realistic+food+photography+of+meal+${encodeURIComponent(recipe.title || 'delicious food')}?width=800&height=600&nologo=true`;
@@ -81,10 +162,10 @@ export default function RecipesView() {
               </div>
             )}
             {recipes.map((recipe) => (
-              <button 
+              <div 
                 key={recipe.id}
                 onClick={() => setSelectedRecipeId(recipe.id)}
-                className="w-full text-left bg-white p-4 rounded-2xl shadow-sm border border-amber-50 hover:border-amber-300 hover:shadow-md transition-all flex items-center justify-between group"
+                className="w-full text-left bg-white p-4 rounded-2xl shadow-sm border border-amber-50 hover:border-amber-300 hover:shadow-md transition-all flex items-center justify-between group cursor-pointer"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-slate-100 relative">
@@ -107,10 +188,19 @@ export default function RecipesView() {
                     </div>
                   </div>
                 </div>
-                <div className="shrink-0 w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600 group-hover:bg-amber-100 transition-colors">
-                  <ChevronRight className="w-5 h-5" />
+                <div className="flex items-center gap-4 py-1">
+                  <button 
+                    onClick={(e) => deleteRecipe(e, recipe.id)}
+                    className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                    title="刪除食譜"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                  <div className="shrink-0 w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-600 group-hover:bg-amber-100 transition-colors">
+                    <ChevronRight className="w-5 h-5" />
+                  </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -178,7 +268,37 @@ export default function RecipesView() {
                 美味食材準備
               </div>
               
-              <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-6">
+              <div className="mt-6 mb-6">
+                <button
+                  onClick={checkIngredientsStatus}
+                  disabled={isChecking}
+                  className={cn(
+                    "w-full py-3 px-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
+                    checkStatus === 'done' 
+                      ? "bg-green-100 text-green-700 border-2 border-green-200" 
+                      : "bg-white border-2 border-[#E8DCCB] text-[#5C4D43] hover:bg-amber-50"
+                  )}
+                >
+                  {isChecking ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      檢查庫存中...
+                    </>
+                  ) : checkStatus === 'done' ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5" />
+                      檢查完成
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-5 h-5" />
+                      檢查食材庫存
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-x-4 gap-y-6">
                 {selectedRecipe.ingredients.map((ing, idx) => (
                   <div key={idx} className="flex flex-col items-center text-center group">
                     <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-[#E8DCCB] flex items-center justify-center text-3xl mb-2 group-hover:scale-105 transition-transform">

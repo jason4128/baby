@@ -31,18 +31,44 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
     return () => unsubscribe();
   }, [auth.currentUser?.uid]);
 
+  const detectTargetField = (name: string, category: string): string => {
+    const lowerName = name.toLowerCase();
+    const lowerCat = category.toLowerCase();
+
+    // 1. Check explicit mentions in the category string
+    if (lowerCat.includes('工具') || lowerCat.includes('器具')) return 'tools';
+    if (lowerCat.includes('調味') || lowerCat.includes('醬')) return 'seasonings';
+    if (lowerCat.includes('食材') || lowerCat.includes('鮮食') || lowerCat.includes('飲品')) return 'ingredients';
+
+    // 2. Check keywords in the name for specific categories
+    // Seasonings
+    const seasoningKeywords = ['醬', '油', '鹽', '糖', '醋', '粉', '精', '味', '胡椒', '咖哩', '味噌', '露', '草'];
+    if (seasoningKeywords.some(k => lowerName.includes(k))) return 'seasonings';
+
+    // Tools
+    const toolKeywords = ['鍋', '鏟', '機', '秤', '盒', '切', '磨', '盤', '夾', '刷', '刀', '板', '勺', '碗'];
+    if (toolKeywords.some(k => lowerName.includes(k))) return 'tools';
+
+    // Ingredients
+    const ingredientKeywords = ['肉', '魚', '蛋', '奶', '菜', '果', '雞', '豬', '牛', '海鮮', '麵', '米', '飲'];
+    if (ingredientKeywords.some(k => lowerName.includes(k))) return 'ingredients';
+
+    // Fallback if we still don't know but it says "食材"
+    if (lowerCat.includes('食材')) return 'ingredients';
+    
+    return '';
+  };
+
   const togglePurchased = async (item: ShoppingItem) => {
     try {
+      const newStatus = !item.isPurchased;
       await updateDoc(doc(db, 'shoppingItems', item.id), {
-        isPurchased: !item.isPurchased,
+        isPurchased: newStatus,
         updatedAt: serverTimestamp()
       });
 
-      if (!item.isPurchased && auth.currentUser) {
-        let targetField = '';
-        if (item.category === '食材') targetField = 'ingredients';
-        else if (item.category === '工具') targetField = 'tools';
-        else if (item.category === '調味料') targetField = 'seasonings';
+      if (newStatus && auth.currentUser) {
+        const targetField = detectTargetField(item.name, item.category || '');
 
         if (targetField) {
           await updateDoc(doc(db, 'users', auth.currentUser.uid), {
@@ -67,11 +93,20 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
 
   const addItem = async () => {
     if (!newItemName.trim() || !auth.currentUser) return;
+    const name = newItemName.trim();
+    
+    // Auto-detect category for better UI
+    let detectedCategory = '一般';
+    const targetField = detectTargetField(name, '');
+    if (targetField === 'ingredients') detectedCategory = '食材';
+    else if (targetField === 'tools') detectedCategory = '工具';
+    else if (targetField === 'seasonings') detectedCategory = '調味料';
+
     try {
       await addDoc(collection(db, 'shoppingItems'), {
         userId: auth.currentUser.uid,
-        name: newItemName.trim(),
-        category: '一般',
+        name,
+        category: detectedCategory,
         isPurchased: false,
         suggestedWeek: pregWeek,
         createdAt: serverTimestamp(),
