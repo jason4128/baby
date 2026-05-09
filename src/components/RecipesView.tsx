@@ -19,6 +19,28 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
   const [isChecking, setIsChecking] = useState(false);
   const [checkStatus, setCheckStatus] = useState<'idle' | 'checking' | 'done'>('idle');
 
+  // Custom Modal State
+  const [modalConfig, setModalConfig] = useState<{
+    show: boolean;
+    title: string;
+    message: string | React.ReactNode;
+    onConfirm?: () => void;
+    type: 'confirm' | 'alert';
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    type: 'alert'
+  });
+
+  const showModal = (title: string, message: string | React.ReactNode, type: 'confirm' | 'alert' = 'alert', onConfirm?: () => void) => {
+    setModalConfig({ show: true, title, message, type, onConfirm });
+  };
+
+  const closeModals = () => {
+    setModalConfig(prev => ({ ...prev, show: false }));
+  };
+
   const checkIngredientsStatus = async () => {
     if (!selectedRecipe || !auth.currentUser) return;
     
@@ -28,49 +50,50 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
     const allInventory = [...tools, ...seasonings, ...ingredients].map(i => i.toLowerCase());
     const missingIngredients = selectedRecipe.ingredients.filter(recipeIng => {
       const name = recipeIng.name.toLowerCase();
-      // Check if any inventory item is contained in the ingredient name or vice versa
       return !allInventory.some(inv => name.includes(inv) || inv.includes(name));
     });
 
     if (missingIngredients.length > 0) {
-      const confirmMsg = `發現缺失食材：\n${missingIngredients.map(i => `• ${i.name}`).join('\n')}\n\n確定要將這些食材加入採購清單嗎？`;
-      if (!window.confirm(confirmMsg)) {
-        setIsChecking(false);
-        setCheckStatus('idle');
-        return;
-      }
-
-      try {
-        for (const ing of missingIngredients) {
-          // Detect category (similar logic to ShoppingView)
-          let category = '食材';
-          const lowerName = ing.name.toLowerCase();
-          
-          const seasoningKeywords = ['醬', '油', '鹽', '糖', '醋', '粉', '精', '味', '胡椒', '咖哩', '味噌', '露', '草'];
-          const toolKeywords = ['鍋', '鏟', '機', '秤', '盒', '切', '磨', '盤', '夾', '刷', '刀', '板', '勺', '碗'];
-          
-          if (seasoningKeywords.some(k => lowerName.includes(k))) {
-            category = '調味料';
-          } else if (toolKeywords.some(k => lowerName.includes(k))) {
-            category = '工具';
+      showModal(
+        '發現缺失食材',
+        <div className="space-y-2">
+          <p className="text-sm text-[#5C4D43]">以下食材尚未出現在您的廚備庫存中，確定要加入採購清單嗎？</p>
+          <div className="bg-amber-50 p-3 rounded-xl border border-amber-100">
+            {missingIngredients.map((i, idx) => (
+              <div key={idx} className="text-sm font-medium text-amber-900">• {i.name}</div>
+            ))}
+          </div>
+        </div>,
+        'confirm',
+        async () => {
+          try {
+            for (const ing of missingIngredients) {
+              let category = '食材';
+              const lowerName = ing.name.toLowerCase();
+              const seasoningKeywords = ['醬', '油', '鹽', '糖', '醋', '粉', '精', '味', '胡椒', '咖哩', '味噌', '露', '草'];
+              const toolKeywords = ['鍋', '鏟', '機', '秤', '盒', '切', '磨', '盤', '夾', '刷', '刀', '板', '勺', '碗'];
+              
+              if (seasoningKeywords.some(k => lowerName.includes(k))) category = '調味料';
+              else if (toolKeywords.some(k => lowerName.includes(k))) category = '工具';
+              
+              await addDoc(collection(db, 'shoppingItems'), {
+                userId: auth.currentUser!.uid,
+                name: ing.name,
+                category: category,
+                isPurchased: false,
+                suggestedWeek: pregWeek,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+              });
+            }
+            showModal('已加入清單', `已將 ${missingIngredients.length} 項缺失食材加入採購清單！`);
+          } catch (e) {
+            handleFirestoreError(e, OperationType.CREATE, 'shoppingItems');
           }
-          
-          await addDoc(collection(db, 'shoppingItems'), {
-            userId: auth.currentUser.uid,
-            name: ing.name,
-            category: category,
-            isPurchased: false,
-            suggestedWeek: pregWeek,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
         }
-        alert(`已將 ${missingIngredients.length} 項缺失食材加入採購清單！`);
-      } catch (e) {
-        handleFirestoreError(e, OperationType.CREATE, 'shoppingItems');
-      }
+      );
     } else {
-      alert('所有食材皆已在您的廚備庫存中！');
+      showModal('庫存充足', '所有食材皆已在您的廚備庫存中！ 🎉');
     }
     
     setCheckStatus('done');
@@ -120,13 +143,19 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
 
   const deleteRecipe = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!window.confirm('確定要刪除這份食譜嗎？')) return;
-    try {
-      await deleteDoc(doc(db, 'recipes', id));
-      if (selectedRecipeId === id) setSelectedRecipeId(null);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `recipes/${id}`);
-    }
+    showModal(
+      '刪除食譜',
+      '確定要刪除這份食譜嗎？此動作無法復原。',
+      'confirm',
+      async () => {
+        try {
+          await deleteDoc(doc(db, 'recipes', id));
+          if (selectedRecipeId === id) setSelectedRecipeId(null);
+        } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, `recipes/${id}`);
+        }
+      }
+    );
   };
 
   const getImageUrl = (recipe: Recipe) => {
@@ -343,6 +372,48 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
           </div>
         </div>
       </div>
+
+      {/* Custom Modal */}
+      {modalConfig.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-[#5C4D43] mb-2">{modalConfig.title}</h3>
+              <div className="text-[#5C4D43]/80 leading-relaxed">
+                {modalConfig.message}
+              </div>
+            </div>
+            <div className="bg-amber-50/50 p-4 flex gap-3">
+              {modalConfig.type === 'confirm' ? (
+                <>
+                  <button
+                    onClick={closeModals}
+                    className="flex-1 py-3 px-4 rounded-xl font-bold text-[#5C4D43]/60 hover:bg-white transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => {
+                      modalConfig.onConfirm?.();
+                      closeModals();
+                    }}
+                    className="flex-1 py-3 px-4 rounded-xl font-bold bg-[#E8DCCB] text-[#5C4D43] hover:bg-[#DFCDB8] transition-all"
+                  >
+                    確定
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={closeModals}
+                  className="w-full py-3 px-4 rounded-xl font-bold bg-[#E8DCCB] text-[#5C4D43] hover:bg-[#DFCDB8] transition-all"
+                >
+                  我知道了
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
