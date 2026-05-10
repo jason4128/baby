@@ -3,6 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 export function getGeminiKey() {
   // Try to get from localStorage first, fallback to process.env
   try {
+    // @ts-ignore
     return localStorage.getItem("GEMINI_API_KEY") || import.meta.env.VITE_GEMINI_API_KEY || "";
   } catch (e) {
     return "";

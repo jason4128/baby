@@ -1,6 +1,6 @@
 {
   "name": "戰友奶爸指揮中心",
   "description": "輔助爸爸的孕產與育兒首席顧問，提供 IVF 階段追蹤、客製化食譜與食材視覺分析。",
-  "requestFramePermissions": ["camera"],
+  "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": []
 }

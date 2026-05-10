@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { differenceInDays } from 'date-fns';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn } from 'lucide-react';
+import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff } from 'lucide-react';
 import { chatWithConsultant, fileToBase64, getGeminiKey, setGeminiKey } from './services/gemini';
 import { BASE_SYSTEM_PROMPT, INITIAL_TOOLS, INITIAL_SEASONINGS, INITIAL_INGREDIENTS, CONCEPTION_DATE } from './constants';
 import { cn } from './lib/utils';
@@ -15,7 +15,7 @@ import LoginView from './components/LoginView';
 
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -44,6 +44,8 @@ export default function App() {
   const [images, setImages] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
   
   // Custom Modal State
   const [modalConfig, setModalConfig] = useState<{
@@ -138,6 +140,66 @@ export default function App() {
       if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
   }, []);
+
+  useEffect(() => {
+    // Initialize speech recognition
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'cmn-Hant-TW'; // Default to Traditional Chinese (Taiwan).
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        if (finalTranscript) {
+          setInput(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + finalTranscript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) {
+      showModal('不支援語音輸入', '您的瀏覽器不支援語音輸入功能（建議使用 Chrome）。');
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        console.error("Microphone access error", e);
+      }
+    }
+  };
 
   const saveToFirebase = async (updates: any) => {
     if (user) {
@@ -697,6 +759,15 @@ export default function App() {
             </div>
           )}
           <div className="flex items-end gap-3 max-w-4xl mx-auto focus-within:ring-4 ring-amber-50/50 rounded-2xl transition-all">
+            <button
+               onClick={toggleListening}
+               className={cn("shrink-0 p-3 rounded-2xl transition-colors border shadow-sm flex items-center justify-center cursor-pointer",
+                 isListening ? "bg-red-50 text-red-600 border-red-200 animate-pulse hover:bg-red-100" : "bg-[#FFF9F0] text-amber-700 hover:bg-amber-100 border-amber-200"
+               )}
+               title={isListening ? "停止錄音" : "語音輸入"}
+            >
+               {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+            </button>
             <label className="shrink-0 p-3 bg-[#FFF9F0] text-amber-700 rounded-2xl cursor-pointer hover:bg-amber-100 transition-colors border border-amber-200 shadow-sm flex items-center justify-center">
               <Camera className="w-5 h-5" />
               <input 
