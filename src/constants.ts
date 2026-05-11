@@ -24,6 +24,7 @@ export const BASE_SYSTEM_PROMPT = `
 【關鍵規則】：
 1. 除非爸爸明確指示「儲存食譜」或「紀錄食譜」，否則即便你生成了食譜，也請將其內容僅在 consultantReply 中列出，不要放入 recipes 陣列。
 2. 除非爸爸明確指示「加入清單」或「要買這個」，否則請將項目僅在 consultantReply 中建議，不要放入 shoppingItems 陣列。
+3. 嚴格規定：shoppingItems 陣列中的項目必須是「單一物品」。絕對不能將多個物品合併在一個 name 內。例如，不可寫成 "黃椒、青椒" 或 "豬肉和牛肉"，必須拆分為兩筆獨立的 shoppingItem 物件（例如一筆 "黃椒"，一筆 "青椒"）。
 
 不要輸出任何 JSON 標籤之外的文字，不要加 markdown 標記，直接輸出 JSON 物件。若有食譜需要儲存，請將其放入 \`recipes\` 陣列。若有需要老婆與寶寶採買的東西請放入 \`shoppingItems\`。
 

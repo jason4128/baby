@@ -14,6 +14,7 @@ interface RecipesViewProps {
 
 export default function RecipesView({ tools = [], seasonings = [], ingredients = [], pregWeek = 0 }: RecipesViewProps) {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
@@ -184,6 +185,8 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
   };
 
   const selectedRecipe = recipes.find(r => r.id === selectedRecipeId);
+  const categories = ['all', ...Array.from(new Set(recipes.map(r => r.category).filter(Boolean)))];
+  const filteredRecipes = recipes.filter(r => selectedCategory === 'all' || r.category === selectedCategory);
 
   // List View
   if (!selectedRecipe) {
@@ -202,13 +205,30 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
             </div>
           </div>
 
+          <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none">
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={cn(
+                  "px-4 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all shadow-sm active:scale-95",
+                  selectedCategory === cat 
+                    ? "bg-amber-600 text-white border-transparent" 
+                    : "bg-white text-amber-900 border border-amber-100 hover:bg-amber-50"
+                )}
+              >
+                {cat === 'all' ? '全部食譜' : cat}
+              </button>
+            ))}
+          </div>
+
           <div className="space-y-3">
-            {recipes.length === 0 && (
+            {filteredRecipes.length === 0 && (
               <div className="text-center py-12 text-amber-700/50">
-                目前還沒有專屬食譜，請與AI對話，或上傳照片讓AI為您設計！
+                目前此分類還沒有專屬食譜。
               </div>
             )}
-            {recipes.map((recipe) => (
+            {filteredRecipes.map((recipe) => (
               <div 
                 key={recipe.id}
                 onClick={() => setSelectedRecipeId(recipe.id)}

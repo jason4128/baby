@@ -45,8 +45,15 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const isVoiceModeRef = useRef<boolean>(false);
   
+  // Cleanup duplicates state
+  const [showCleanupModal, setShowCleanupModal] = useState(false);
+  const [potentialDuplicates, setPotentialDuplicates] = useState<{group: string, items: string[]}[]>([]);
+  const [cleanupSelection, setCleanupSelection] = useState<string[]>([]);
+
   // Custom Modal State
   const [modalConfig, setModalConfig] = useState<{
     show: boolean;
@@ -178,6 +185,16 @@ export default function App() {
 
       recognition.onend = () => {
         setIsListening(false);
+        if (isVoiceModeRef.current) {
+          // If in continuous mode and not loading, restart recognizing after a short pause
+          setTimeout(() => {
+            if (isVoiceModeRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch(e) {}
+            }
+          }, 500);
+        }
       };
 
       recognitionRef.current = recognition;
@@ -190,9 +207,13 @@ export default function App() {
       return;
     }
 
-    if (isListening) {
-      recognitionRef.current.stop();
+    if (isVoiceMode) {
+      setIsVoiceMode(false);
+      isVoiceModeRef.current = false;
+      if (isListening) recognitionRef.current.stop();
     } else {
+      setIsVoiceMode(true);
+      isVoiceModeRef.current = true;
       try {
         recognitionRef.current.start();
       } catch (e) {
@@ -257,6 +278,49 @@ export default function App() {
       saveToFirebase({ ingredients: is });
       setNewIngredient('');
     }
+  };
+
+  const handleCheckDuplicates = () => {
+    const allItems = [...ingredients];
+    const grouped = new Set<string>();
+    const newPotentialDuplicates = [];
+    
+    for (let i = 0; i < allItems.length; i++) {
+        if (grouped.has(allItems[i])) continue;
+        const currentGroup = [allItems[i]];
+        for (let j = i + 1; j < allItems.length; j++) {
+            if (grouped.has(allItems[j])) continue;
+            // simple fuzzy detection
+            if (allItems[i].includes(allItems[j]) || allItems[j].includes(allItems[i])) {
+               currentGroup.push(allItems[j]);
+               grouped.add(allItems[j]);
+            }
+        }
+        if (currentGroup.length > 1) {
+            newPotentialDuplicates.push({ group: currentGroup[0], items: currentGroup });
+            grouped.add(currentGroup[0]);
+        }
+    }
+    
+    if (newPotentialDuplicates.length > 0) {
+      setPotentialDuplicates(newPotentialDuplicates);
+      setCleanupSelection([]);
+      setShowCleanupModal(true);
+    } else {
+      showModal('沒有重複食材', '目前您的食材庫內沒有發現需要整理的重複項目。');
+    }
+  };
+
+  const performCleanup = () => {
+    if (cleanupSelection.length === 0) {
+      setShowCleanupModal(false);
+      return;
+    }
+    const is = ingredients.filter(ing => !cleanupSelection.includes(ing));
+    setIngredients(is);
+    saveToFirebase({ ingredients: is });
+    setShowCleanupModal(false);
+    showModal('清理完成', `已成功清理 ${cleanupSelection.length} 個重複食材。`);
   };
 
   const removeIngredient = (i: string) => {
@@ -344,6 +408,10 @@ export default function App() {
     if (!input.trim() && images.length === 0) return;
     
     setIsLoading(true);
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+
     let base64Images: { mimeType: string; data: string }[] = [];
     
     // add user message immediately
@@ -409,6 +477,17 @@ export default function App() {
       setMessages(prev => [...prev, { role: 'model', parts: [{ text: errorMsg }] }]);
     } finally {
       setIsLoading(false);
+      // Restart microphone if in continuous voice mode
+      if (isVoiceModeRef.current && recognitionRef.current) {
+        // slightly delay to ensure rendering happens
+        setTimeout(() => {
+          try {
+            recognitionRef.current.start();
+          } catch(e) {
+            console.error("Resume mic error", e);
+          }
+        }, 300);
+      }
     }
   };
 
@@ -533,7 +612,15 @@ export default function App() {
 
             {/* Ingredients */}
             <div>
-              <h3 className="text-sm font-bold text-[#5C4D43] mb-3 flex items-center gap-2">現有食材</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-[#5C4D43] flex items-center gap-2">現有食材</h3>
+                <button 
+                  onClick={handleCheckDuplicates}
+                  className="px-3 py-1 bg-[#FFF9F0] text-amber-700 text-xs font-bold rounded-lg border border-amber-200 hover:bg-amber-100 transition-colors"
+                >
+                  🧹 整理重複項目
+                </button>
+              </div>
               <div className="flex flex-wrap gap-2 mb-3">
                 {ingredients.map(i => (
                   <span key={i} className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-100 text-amber-900 font-medium text-sm rounded-xl border border-amber-200">
@@ -762,11 +849,11 @@ export default function App() {
             <button
                onClick={toggleListening}
                className={cn("shrink-0 p-3 rounded-2xl transition-colors border shadow-sm flex items-center justify-center cursor-pointer",
-                 isListening ? "bg-red-50 text-red-600 border-red-200 animate-pulse hover:bg-red-100" : "bg-[#FFF9F0] text-amber-700 hover:bg-amber-100 border-amber-200"
+                 isVoiceMode ? "bg-red-50 text-red-600 border-red-200 animate-pulse hover:bg-red-100" : "bg-[#FFF9F0] text-amber-700 hover:bg-amber-100 border-amber-200"
                )}
-               title={isListening ? "停止錄音" : "語音輸入"}
+               title={isVoiceMode ? "停止連續語音" : "開啟連續語音問答"}
             >
-               {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+               {isVoiceMode ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
             <label className="shrink-0 p-3 bg-[#FFF9F0] text-amber-700 rounded-2xl cursor-pointer hover:bg-amber-100 transition-colors border border-amber-200 shadow-sm flex items-center justify-center">
               <Camera className="w-5 h-5" />
@@ -930,6 +1017,59 @@ export default function App() {
                   我知道了
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cleanup Modal */}
+      {showCleanupModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-[#5C4D43] mb-4">發現以下可能重複的食材</h3>
+              <p className="text-sm text-[#5C4D43]/80 mb-4">勾選要移除的重複項目：</p>
+              
+              <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2">
+                {potentialDuplicates.map((group, gIdx) => (
+                  <div key={gIdx} className="bg-amber-50 p-3 rounded-xl border border-amber-100">
+                    <div className="text-sm font-bold text-amber-900 mb-2 border-b border-amber-200 pb-1">
+                      群組：{group.group}
+                    </div>
+                    <div className="space-y-2">
+                      {group.items.map((item, iIdx) => (
+                        <label key={iIdx} className="flex items-center gap-3 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 bg-white border-amber-300"
+                            checked={cleanupSelection.includes(item)}
+                            onChange={(e) => {
+                              if (e.target.checked) setCleanupSelection(prev => [...prev, item]);
+                              else setCleanupSelection(prev => prev.filter(v => v !== item));
+                            }}
+                          />
+                          <span className="text-sm text-amber-800">{item}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="bg-amber-50/50 p-4 flex gap-3">
+              <button
+                onClick={() => setShowCleanupModal(false)}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-[#5C4D43]/60 hover:bg-white transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={performCleanup}
+                className="flex-1 py-3 px-4 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all shadow-md shadow-red-200"
+              >
+                刪除 ({cleanupSelection.length})
+              </button>
             </div>
           </div>
         </div>
