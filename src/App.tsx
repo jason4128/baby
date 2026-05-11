@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { differenceInDays } from 'date-fns';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff } from 'lucide-react';
-import { chatWithConsultant, fileToBase64, getGeminiKey, setGeminiKey } from './services/gemini';
+import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2 } from 'lucide-react';
+import { chatWithConsultant, fileToBase64, getGeminiKey, setGeminiKey, analyzeSettingsImage } from './services/gemini';
 import { BASE_SYSTEM_PROMPT, INITIAL_TOOLS, INITIAL_SEASONINGS, INITIAL_INGREDIENTS, CONCEPTION_DATE } from './constants';
 import { cn } from './lib/utils';
 import { AppTab } from './types';
@@ -41,8 +41,10 @@ export default function App() {
     saved?: boolean;
   }[]>([]);
   const [input, setInput] = useState('');
+  const inputRef = useRef('');
   const [images, setImages] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const isLoadingRef = useRef(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
@@ -53,6 +55,90 @@ export default function App() {
   const [showCleanupModal, setShowCleanupModal] = useState(false);
   const [potentialDuplicates, setPotentialDuplicates] = useState<{group: string, items: string[]}[]>([]);
   const [cleanupSelection, setCleanupSelection] = useState<string[]>([]);
+
+  // Import Image State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importDrafts, setImportDrafts] = useState<{
+    tools: {name: string, checked: boolean, exists: boolean}[],
+    seasonings: {name: string, checked: boolean, exists: boolean}[],
+    ingredients: {name: string, checked: boolean, exists: boolean}[]
+  }>({ tools: [], seasonings: [], ingredients: [] });
+  const settingsInputRef = useRef<HTMLInputElement>(null);
+
+  const processSettingsImage = async (file: File) => {
+    setIsImporting(true);
+    try {
+      const base64 = await fileToBase64(file);
+      const data = await analyzeSettingsImage({ mimeType: file.type, data: base64 });
+      
+      const checkExists = (list: string[], item: string) => list.some(ex => ex.includes(item) || item.includes(ex));
+
+      const newDrafts = {
+        tools: (data.tools || []).map((t: string) => ({ name: t, exists: checkExists(tools, t), checked: !checkExists(tools, t) })),
+        seasonings: (data.seasonings || []).map((t: string) => ({ name: t, exists: checkExists(seasonings, t), checked: !checkExists(seasonings, t) })),
+        ingredients: (data.ingredients || []).map((t: string) => ({ name: t, exists: checkExists(ingredients, t), checked: !checkExists(ingredients, t) })),
+      };
+
+      if (newDrafts.tools.length === 0 && newDrafts.seasonings.length === 0 && newDrafts.ingredients.length === 0) {
+        showModal('未偵測到內容', '無法從圖片中辨識出任何工具、調味料或食材。');
+        setIsImporting(false);
+        return;
+      }
+
+      setImportDrafts(newDrafts);
+      setShowImportModal(true);
+    } catch(err) {
+      console.error(err);
+      showModal('解析失敗', '無法解析圖片內容，請確認 API Key 可用或圖片清晰。');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleSettingsImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    await processSettingsImage(file);
+    e.target.value = '';
+  };
+
+  const handleSettingsPaste = async (e: React.ClipboardEvent) => {
+    // Only capture paste if we are in the settings tab
+    if (activeTab !== 'settings') return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) await processSettingsImage(file);
+        break; // Process one image at a time
+      }
+    }
+  };
+
+  const confirmImport = () => {
+    const newTools = importDrafts.tools.filter(t => t.checked).map(t => t.name);
+    const newSeasonings = importDrafts.seasonings.filter(t => t.checked).map(t => t.name);
+    const newIngredients = importDrafts.ingredients.filter(t => t.checked).map(t => t.name);
+
+    if (newTools.length === 0 && newSeasonings.length === 0 && newIngredients.length === 0) {
+      setShowImportModal(false);
+      return;
+    }
+
+    const t = Array.from(new Set([...tools, ...newTools]));
+    const s = Array.from(new Set([...seasonings, ...newSeasonings]));
+    const i = Array.from(new Set([...ingredients, ...newIngredients]));
+
+    setTools(t);
+    setSeasonings(s);
+    setIngredients(i);
+    saveToFirebase({ tools: t, seasonings: s, ingredients: i });
+
+    setShowImportModal(false);
+    showModal('新增完成', `已成功新增備品！`);
+  };
 
   // Custom Modal State
   const [modalConfig, setModalConfig] = useState<{
@@ -174,7 +260,11 @@ export default function App() {
         }
         
         if (finalTranscript) {
-          setInput(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + finalTranscript);
+          setInput(prev => {
+            const next = prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + finalTranscript;
+            inputRef.current = next;
+            return next;
+          });
         }
       };
 
@@ -185,15 +275,19 @@ export default function App() {
 
       recognition.onend = () => {
         setIsListening(false);
-        if (isVoiceModeRef.current) {
-          // If in continuous mode and not loading, restart recognizing after a short pause
-          setTimeout(() => {
-            if (isVoiceModeRef.current) {
-              try {
-                recognitionRef.current.start();
-              } catch(e) {}
-            }
-          }, 500);
+        if (isVoiceModeRef.current && !isLoadingRef.current) {
+          if (inputRef.current.trim().length > 0) {
+            handleSendRef.current?.();
+          } else {
+            // Restart if it just stopped without sending
+            setTimeout(() => {
+              if (isVoiceModeRef.current && !isLoadingRef.current) {
+                try {
+                  recognitionRef.current.start();
+                } catch(e) {}
+              }
+            }, 500);
+          }
         }
       };
 
@@ -404,19 +498,24 @@ export default function App() {
     }
   };
 
+  const handleSendRef = useRef<() => void>(() => {});
+  
   const handleSend = async () => {
-    if (!input.trim() && images.length === 0) return;
+    handleSendRef.current = handleSend;
+    const currentInput = inputRef.current;
+    if (!currentInput.trim() && images.length === 0) return;
     
     setIsLoading(true);
+    isLoadingRef.current = true;
     if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
+      try { recognitionRef.current.stop(); } catch(e) {}
     }
 
     let base64Images: { mimeType: string; data: string }[] = [];
     
     // add user message immediately
     const userParts: any[] = [];
-    if (input.trim()) userParts.push({ text: input.trim() });
+    if (currentInput.trim()) userParts.push({ text: currentInput.trim() });
     
     try {
       if (images.length > 0) {
@@ -431,16 +530,18 @@ export default function App() {
       const updatedHistory = [...messages, newMsg];
       setMessages(updatedHistory);
       setInput('');
+      inputRef.current = '';
       setImages([]);
 
       // Generate dynamic prompt
       // Generate dynamic prompt and attach inventory context directly to the user message for the AI's current awareness
       const inventoryContext = `
-系統庫存資訊：
-- 工具：${tools.length > 0 ? tools.join('、') : '目前無紀錄'}
-- 調味：${seasonings.length > 0 ? seasonings.join('、') : '目前無紀錄'}
-- 食材料：${ingredients.length > 0 ? ingredients.join('、') : '目前無紀錄'}
-(請優先根據現有食材提供建議，若食材不足請在回覆中建議採購，並放入 shoppingItems 陣列)
+[系統庫存與狀態資訊]
+- 老婆目前孕期：第 ${pregWeek} 週又 ${pregDay} 天
+- 廚房工具：${tools.length > 0 ? tools.join('、') : '目前無紀錄'}
+- 常備調味：${seasonings.length > 0 ? seasonings.join('、') : '目前無紀錄'}
+- 現有食材：${ingredients.length > 0 ? ingredients.join('、') : '目前無紀錄'}
+(請優先根據現有狀況與老婆目前的孕期階段提供建議，若食材不足請在回覆中建議採購)
 `;
 
       const systemPrompt = BASE_SYSTEM_PROMPT
@@ -477,6 +578,7 @@ export default function App() {
       setMessages(prev => [...prev, { role: 'model', parts: [{ text: errorMsg }] }]);
     } finally {
       setIsLoading(false);
+      isLoadingRef.current = false;
       // Restart microphone if in continuous voice mode
       if (isVoiceModeRef.current && recognitionRef.current) {
         // slightly delay to ensure rendering happens
@@ -490,6 +592,7 @@ export default function App() {
       }
     }
   };
+  handleSendRef.current = handleSend;
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (e.clipboardData.files.length > 0) {
@@ -543,17 +646,36 @@ export default function App() {
     if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} />;
     if (activeTab === 'shopping') return <ShoppingView pregWeek={pregWeek} />;
     if (activeTab === 'settings') return (
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#fdfbf7]">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#fdfbf7]" onPaste={handleSettingsPaste}>
         <div className="max-w-2xl mx-auto space-y-6">
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-amber-100 flex items-center gap-4">
-            <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center shrink-0">
-              <Settings className="w-7 h-7" />
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-amber-100 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center shrink-0">
+                <Settings className="w-7 h-7" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-amber-900">廚備與偏好設定</h2>
+                <p className="text-amber-700/70 text-sm mt-1">
+                  記錄家中現有的工具和食材。支援直接貼上(Ctrl+V)照片或上傳圖片。
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-2xl font-bold text-amber-900">廚備與偏好設定</h2>
-              <p className="text-amber-700/70 text-sm mt-1">
-                記錄家中現有的工具和食材，AI 將能給予更精準的食譜與採買建議。
-              </p>
+            <div className="flex gap-2">
+              <input 
+                type="file" 
+                accept="image/*" 
+                ref={settingsInputRef}
+                className="hidden" 
+                onChange={handleSettingsImageUpload} 
+              />
+              <button 
+                onClick={() => settingsInputRef.current?.click()}
+                disabled={isImporting}
+                className="flex items-center gap-2 px-4 py-2 bg-[#FFF9F0] text-amber-700 rounded-xl hover:bg-amber-100 font-bold border border-amber-200 transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImagePlus className="w-5 h-5" />}
+                {isImporting ? '解析中...' : '圖片匯入'}
+              </button>
             </div>
           </div>
             
@@ -873,7 +995,10 @@ export default function App() {
               className="flex-1 max-h-40 min-h-[52px] bg-[#FFF9F0] text-[#5C4D43] rounded-2xl px-5 py-3.5 focus:outline-none focus:ring-2 focus:ring-amber-500 border border-[#E8DCCB] shadow-inner resize-none text-[15px] leading-relaxed placeholder:text-amber-800/40 font-medium"
               placeholder="貼上食譜截圖 (Ctrl+V) 或是直接詢問孕期建議..."
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => {
+                setInput(e.target.value);
+                inputRef.current = e.target.value;
+              }}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -1069,6 +1194,70 @@ export default function App() {
                 className="flex-1 py-3 px-4 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-all shadow-md shadow-red-200"
               >
                 刪除 ({cleanupSelection.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-[#5C4D43] mb-4">圖片解析結果</h3>
+              <p className="text-sm text-[#5C4D43]/80 mb-4">請確認要加入的項目（已自動排除可能重複的項目）：</p>
+              
+              <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                {['tools', 'seasonings', 'ingredients'].map((catKey: string) => {
+                   const labelMap: Record<string, string> = { tools: '工具', seasonings: '調味料', ingredients: '食材' };
+                   const items = importDrafts[catKey as keyof typeof importDrafts];
+                   if (items.length === 0) return null;
+                   return (
+                     <div key={catKey} className="bg-amber-50 p-3 rounded-xl border border-amber-100">
+                       <div className="text-sm font-bold text-amber-900 mb-2 border-b border-amber-200 pb-1">
+                         {labelMap[catKey]}
+                       </div>
+                       <div className="space-y-2">
+                         {items.map((item, iIdx) => (
+                           <label key={iIdx} className="flex items-center gap-3 cursor-pointer">
+                             <input 
+                               type="checkbox" 
+                               className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 bg-white border-amber-300"
+                               checked={item.checked}
+                               onChange={(e) => {
+                                 const checked = e.target.checked;
+                                 setImportDrafts(prev => {
+                                   const newList = [...prev[catKey as keyof typeof prev]];
+                                   newList[iIdx].checked = checked;
+                                   return { ...prev, [catKey]: newList };
+                                 });
+                               }}
+                             />
+                             <span className={cn("text-sm transition-colors", item.exists ? "text-amber-800/50 line-through" : "text-amber-800")}>
+                               {item.name} {item.exists && '(疑似已存在)'}
+                             </span>
+                           </label>
+                         ))}
+                       </div>
+                     </div>
+                   );
+                })}
+              </div>
+            </div>
+            
+            <div className="bg-amber-50/50 p-4 flex gap-3">
+              <button
+                onClick={() => setShowImportModal(false)}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-[#5C4D43]/60 hover:bg-white transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmImport}
+                className="flex-1 py-3 px-4 rounded-xl font-bold bg-amber-600 text-white hover:bg-amber-700 transition-all shadow-md shadow-amber-200"
+              >
+                匯入選擇項目
               </button>
             </div>
           </div>

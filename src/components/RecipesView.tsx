@@ -184,9 +184,21 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
     return recipe.imageUrl;
   };
 
+  const normalizeCategory = (cat: string) => {
+    if (!cat) return '未分類';
+    if (cat.includes('氣炸')) return '氣炸鍋料理';
+    if (cat.includes('湯')) return '湯品';
+    if (cat.includes('點心') || cat.includes('甜')) return '點心';
+    if (cat.includes('懶人')) return '懶人料理';
+    if (cat.includes('早餐')) return '早餐';
+    if (cat.includes('晚餐')) return '晚餐';
+    if (cat.includes('午餐')) return '午餐';
+    return cat;
+  };
+
   const selectedRecipe = recipes.find(r => r.id === selectedRecipeId);
-  const categories = ['all', ...Array.from(new Set(recipes.map(r => r.category).filter(Boolean)))];
-  const filteredRecipes = recipes.filter(r => selectedCategory === 'all' || r.category === selectedCategory);
+  const categories = ['all', ...Array.from(new Set(recipes.map(r => normalizeCategory(r.category)).filter(Boolean)))];
+  const filteredRecipes = recipes.filter(r => selectedCategory === 'all' || normalizeCategory(r.category) === selectedCategory);
 
   // List View
   if (!selectedRecipe) {
@@ -205,13 +217,13 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
             </div>
           </div>
 
-          <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none">
+          <div className="flex flex-wrap gap-2 pb-2">
             {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
                 className={cn(
-                  "px-4 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all shadow-sm active:scale-95",
+                  "px-4 py-2 rounded-full text-sm font-bold transition-all shadow-sm active:scale-95",
                   selectedCategory === cat 
                     ? "bg-amber-600 text-white border-transparent" 
                     : "bg-white text-amber-900 border border-amber-100 hover:bg-amber-50"

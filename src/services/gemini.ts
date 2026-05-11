@@ -98,6 +98,44 @@ export async function chatWithConsultant(
   }
 }
 
+export async function analyzeSettingsImage(base64Image: { mimeType: string; data: string }) {
+  try {
+    const ai = getGeminiClient();
+    
+    const prompt = `請分析圖片內容（可能是發票、明細或實體物品），辨識出有哪些：廚房工具、調味料、或食材料。
+請務必回傳嚴格的 JSON 格式如下：
+{
+  "tools": ["工具1", "工具2"],
+  "seasonings": ["調味料1", "調味料2"],
+  "ingredients": ["食材1", "食材2"]
+}
+務必只回傳包含在 JSON 格式內的資料，不要加任何其他文字標記，不要使用 markdown。另外請特別注意，請將食材區分成「單一物品」（如黃椒和青椒應為獨立字串），並將商品名稱轉化為適合日常稱呼的名稱（例如只取食材名，過濾掉廠牌、重量或發票代碼等冗餘字眼）。若沒有該分類的物品請回傳空陣列 []。`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        { role: "user", parts: [
+          { inlineData: { mimeType: base64Image.mimeType, data: base64Image.data } },
+          { text: prompt }
+        ]}
+      ],
+      config: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+      }
+    });
+
+    const text = response.text;
+    if (text) {
+      return JSON.parse(text);
+    }
+    return { tools: [], seasonings: [], ingredients: [] };
+  } catch (error) {
+    console.error("Analyze image error", error);
+    throw error;
+  }
+}
+
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
