@@ -1,4 +1,4 @@
-export type AppTab = 'chat' | 'recipes' | 'records' | 'settings' | 'shopping' | 'wife';
+export type AppTab = 'chat' | 'recipes' | 'records' | 'settings' | 'shopping' | 'wife' | 'milestones';
 
 export type Ingredient = {
   name: string;

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { differenceInDays } from 'date-fns';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2, Heart } from 'lucide-react';
+import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2, Heart, ClipboardList } from 'lucide-react';
 import { chatWithConsultant, fileToBase64, getGeminiKeys, setGeminiKeys, analyzeSettingsImage } from './services/gemini';
 import { BASE_SYSTEM_PROMPT, INITIAL_TOOLS, INITIAL_SEASONINGS, INITIAL_INGREDIENTS, CONCEPTION_DATE } from './constants';
 import { cn } from './lib/utils';
@@ -11,6 +11,7 @@ import RecipesView from './components/RecipesView';
 import RecordsView from './components/RecordsView';
 import ShoppingView from './components/ShoppingView';
 import WifeView from './components/WifeView';
+import MilestonesView from './components/MilestonesView';
 
 import LoginView from './components/LoginView';
 
@@ -683,6 +684,7 @@ export default function App() {
     { id: 'records', label: '寶寶紀錄', icon: Baby },
     { id: 'shopping', label: '採購規劃', icon: ShoppingBag },
     { id: 'wife', label: '老婆專區', icon: Heart },
+    { id: 'milestones', label: '重要紀事', icon: ClipboardList },
     { id: 'settings', label: '廚備設定', icon: Settings },
   ] as const;
 
@@ -723,6 +725,7 @@ export default function App() {
     if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} />;
     if (activeTab === 'shopping') return <ShoppingView pregWeek={pregWeek} />;
     if (activeTab === 'wife') return <WifeView pregWeek={pregWeek} />;
+    if (activeTab === 'milestones') return <MilestonesView />;
     if (activeTab === 'settings') return (
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#fdfbf7]" onPaste={handleSettingsPaste}>
         <div className="max-w-2xl mx-auto space-y-6">
