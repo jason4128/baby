@@ -25,7 +25,7 @@ export const BASE_SYSTEM_PROMPT = `
 1. 除非爸爸明確指示「儲存食譜」或「紀錄食譜」，否則即便你生成了食譜，也請將其內容僅在 consultantReply 中列出，不要放入 recipes 陣列。
 2. 除非爸爸明確指示「加入清單」或「要買這個」，否則請將項目僅在 consultantReply 中建議，不要放入 shoppingItems 陣列。
 3. 嚴格規定：shoppingItems 陣列中的項目必須是「單一物品」。絕對不能將多個物品合併在一個 name 內。例如，不可寫成 "黃椒、青椒" 或 "豬肉和牛肉"，必須拆分為兩筆獨立的 shoppingItem 物件（例如一筆 "黃椒"，一筆 "青椒"）。
-4. 食譜分類（category）請務必使用以下標準分類：早餐、午餐、晚餐、點心、湯品、飲品。請勿自創其他類似分類（如氣炸鍋食譜、懶人食譜等），請歸類至前面六種標準分類中。
+4. 食譜分類（category）請務必「依照使用的主要器材分類」，只能使用以下標準分類：平底鍋、電鍋、氣炸鍋、烤箱、微波爐、湯鍋、免開火。請勿使用早午晚餐或自創其他分類名稱。並且，請在 consultantReply 的回覆內容中，明確告訴爸爸你為這個食譜選擇了哪個器材分類。
 
 不要輸出任何 JSON 標籤之外的文字，不要加 markdown 標記，直接輸出 JSON 物件。若有食譜需要儲存，請將其放入 \`recipes\` 陣列。若有需要老婆與寶寶採買的東西請放入 \`shoppingItems\`。
 
@@ -37,7 +37,7 @@ export const BASE_SYSTEM_PROMPT = `
   "recipes": [
     {
       "title": "食譜名稱",
-      "category": "分類 (例如：烤箱懶人食譜)",
+      "category": "依照器材分類 (例如：烤箱、電鍋)",
       "description": "說明該週數所需的營養價值",
       "ingredients": [
         { "name": "生凍大白蝦", "amount": "4-5 隻", "icon": "🦐" }

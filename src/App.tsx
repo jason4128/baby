@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { differenceInDays } from 'date-fns';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2 } from 'lucide-react';
+import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2, Heart } from 'lucide-react';
 import { chatWithConsultant, fileToBase64, getGeminiKey, setGeminiKey, analyzeSettingsImage } from './services/gemini';
 import { BASE_SYSTEM_PROMPT, INITIAL_TOOLS, INITIAL_SEASONINGS, INITIAL_INGREDIENTS, CONCEPTION_DATE } from './constants';
 import { cn } from './lib/utils';
@@ -10,6 +10,7 @@ import { AppTab } from './types';
 import RecipesView from './components/RecipesView';
 import RecordsView from './components/RecordsView';
 import ShoppingView from './components/ShoppingView';
+import WifeView from './components/WifeView';
 
 import LoginView from './components/LoginView';
 
@@ -40,6 +41,7 @@ export default function App() {
     };
     saved?: boolean;
   }[]>([]);
+  const [activeShoppingItems, setActiveShoppingItems] = useState<{id: string, name: string}[]>([]);
   const [input, setInput] = useState('');
   const inputRef = useRef('');
   const [images, setImages] = useState<File[]>([]);
@@ -88,9 +90,13 @@ export default function App() {
 
       setImportDrafts(newDrafts);
       setShowImportModal(true);
-    } catch(err) {
+    } catch(err: any) {
       console.error(err);
-      showModal('解析失敗', '無法解析圖片內容，請確認 API Key 可用或圖片清晰。');
+      if (err.message?.includes('API Key')) {
+        showModal('需要設定 API Key', err.message);
+      } else {
+        showModal('解析失敗', '無法解析圖片內容，請確認 API Key 可用或圖片清晰。');
+      }
     } finally {
       setIsImporting(false);
     }
@@ -175,6 +181,24 @@ export default function App() {
     setPregWeek(Math.floor(diffDays / 7));
     setPregDay(diffDays % 7);
   }, [conceptionDate]);
+
+  useEffect(() => {
+    if (!user) {
+      setActiveShoppingItems([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'shoppingItems'),
+      where('userId', '==', user.uid),
+      where('isPurchased', '==', false)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setActiveShoppingItems(snap.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
+    }, (error) => {
+      console.error(error);
+    });
+    return () => unsub();
+  }, [user]);
 
   useEffect(() => {
     let unsubscribeSnapshot: (() => void) | null = null;
@@ -423,6 +447,51 @@ export default function App() {
     saveToFirebase({ ingredients: is });
   };
 
+  const categorizeIngredient = (item: string) => {
+    const veggies = ['菜', '蔥', '蒜', '薑', '椒', '菇', '筍', '豆', '瓜', '蘿蔔', '薯', '茄'];
+    const meats = ['豬', '牛', '雞', '羊', '肉', '排', '翅', '腿', '香腸', '火腿', '培根'];
+    const seafood = ['魚', '蝦', '蟹', '貝', '蛤', '鮮', '魷', '花枝'];
+    const diary = ['乳', '奶', '起司', '奶油', '優格', '蛋'];
+    
+    if (meats.some(v => item.includes(v))) return '肉類';
+    if (seafood.some(v => item.includes(v))) return '海鮮';
+    if (veggies.some(v => item.includes(v))) return '蔬菜/植物';
+    if (diary.some(v => item.includes(v))) return '乳製品/蛋';
+    return '其他';
+  };
+
+  const handleToggleIngredientShopping = async (ingredient: string) => {
+    // Check if ingredient exists or partially matches active shopping items
+    // Better strictly match name to toggle back explicitly
+    const existing = activeShoppingItems.find(i => i.name === ingredient);
+    if (existing) {
+      // Mark it purchased to un-gray it
+      try {
+        await updateDoc(doc(db, 'shoppingItems', existing.id), {
+          isPurchased: true,
+          updatedAt: serverTimestamp()
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `shoppingItems/${existing.id}`);
+      }
+    } else {
+      // Add to shopping items to gray it out
+      try {
+        await addDoc(collection(db, 'shoppingItems'), {
+          userId: user!.uid,
+          name: ingredient,
+          category: categorizeIngredient(ingredient),
+          isPurchased: false,
+          suggestedWeek: pregWeek,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, 'shoppingItems');
+      }
+    }
+  };
+
   const handleSaveRecipe = async (msgIdx: number, recipe: any) => {
     if (!user) return;
     try {
@@ -572,8 +641,8 @@ export default function App() {
       let errorMsg = '⚠️ 顧問系統遇到錯誤，請確認網路或 API KEY 設定後再試一次。';
       if (e?.message?.includes('quota') || e?.message?.includes('429')) {
         errorMsg = '⚠️ AI 額度已達上限（Quota Exceeded）。如果您是使用自己的 API Key，請檢查 Google AI Studio 的帳單或額度設定；如果是使用系統預設 Key，請稍候再試或在「廚備設定」中設定您自己的 API Key。';
-      } else if (e?.message?.includes('API key not valid') || e?.message?.includes('401')) {
-        errorMsg = '⚠️ API KEY 無效。請前往「廚備設定」重新檢查並儲存您的 Gemini API Key。';
+      } else if (e?.message?.includes('API Key') || e?.message?.includes('API key not valid') || e?.message?.includes('401')) {
+        errorMsg = '⚠️ API KEY 問題。請前往「廚備設定」重新檢查並儲存您的 Gemini API Key。';
       }
       setMessages(prev => [...prev, { role: 'model', parts: [{ text: errorMsg }] }]);
     } finally {
@@ -606,6 +675,7 @@ export default function App() {
     { id: 'recipes', label: '專屬食譜', icon: Utensils },
     { id: 'records', label: '寶寶紀錄', icon: Baby },
     { id: 'shopping', label: '採購規劃', icon: ShoppingBag },
+    { id: 'wife', label: '老婆專區', icon: Heart },
     { id: 'settings', label: '廚備設定', icon: Settings },
   ] as const;
 
@@ -645,6 +715,7 @@ export default function App() {
     if (activeTab === 'recipes') return <RecipesView tools={tools} seasonings={seasonings} ingredients={ingredients} pregWeek={pregWeek} />;
     if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} />;
     if (activeTab === 'shopping') return <ShoppingView pregWeek={pregWeek} />;
+    if (activeTab === 'wife') return <WifeView pregWeek={pregWeek} />;
     if (activeTab === 'settings') return (
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#fdfbf7]" onPaste={handleSettingsPaste}>
         <div className="max-w-2xl mx-auto space-y-6">
@@ -743,13 +814,42 @@ export default function App() {
                   🧹 整理重複項目
                 </button>
               </div>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {ingredients.map(i => (
-                  <span key={i} className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-100 text-amber-900 font-medium text-sm rounded-xl border border-amber-200">
-                    {i}
-                    <button onClick={() => removeIngredient(i)} className="text-amber-700/60 hover:text-red-500"><X className="w-4 h-4" /></button>
-                  </span>
-                ))}
+              <div className="space-y-4 mb-4">
+                {['蔬菜/植物', '肉類', '海鮮', '乳製品/蛋', '其他'].map(cat => {
+                  const items = ingredients.filter(i => categorizeIngredient(i) === cat);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={cat} className="space-y-2">
+                      <div className="text-xs font-bold text-amber-900/60 pl-1">{cat}</div>
+                      <div className="flex flex-wrap gap-2">
+                        {items.map(i => {
+                          const isDepleted = activeShoppingItems.some(item => item.name === i);
+                          return (
+                            <span 
+                              key={i} 
+                              onClick={() => handleToggleIngredientShopping(i)}
+                              className={cn(
+                                "inline-flex items-center gap-1 px-3 py-1.5 font-medium text-sm rounded-xl border cursor-pointer transition-all active:scale-95",
+                                isDepleted 
+                                  ? "bg-slate-100 text-slate-400 border-slate-200 opacity-60" 
+                                  : "bg-amber-100 text-amber-900 border-amber-200 hover:bg-amber-200"
+                              )}
+                              title={isDepleted ? "點擊標記為已購買" : "點擊標記為已用完(加入採購)"}
+                            >
+                              {i}
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); removeIngredient(i); }} 
+                                className="text-current opacity-60 hover:opacity-100 hover:text-red-500 transition-colors ml-1"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="flex gap-2">
                 <input 

@@ -3,11 +3,25 @@ import { GoogleGenAI } from "@google/genai";
 export function getGeminiKey() {
   // Try to get from localStorage first, fallback to process.env
   try {
+    const local = localStorage.getItem("GEMINI_API_KEY");
+    if (local) return local;
+  } catch (e) {}
+
+  try {
+    if (import.meta.env.VITE_GEMINI_API_KEY) {
+      return import.meta.env.VITE_GEMINI_API_KEY;
+    }
+  } catch (e) {}
+  
+  try {
     // @ts-ignore
-    return localStorage.getItem("GEMINI_API_KEY") || import.meta.env.VITE_GEMINI_API_KEY || "";
-  } catch (e) {
-    return "";
-  }
+    if (process.env.GEMINI_API_KEY) {
+      // @ts-ignore
+      return process.env.GEMINI_API_KEY;
+    }
+  } catch(e) {}
+  
+  return "";
 }
 
 export function setGeminiKey(key: string) {
@@ -25,7 +39,7 @@ export function setGeminiKey(key: string) {
 function getGeminiClient() {
   const apiKey = getGeminiKey();
   if (!apiKey) {
-    throw new Error("請先在側邊欄設定您的 Gemini API Key！");
+    throw new Error("請在『廚備設定』中設定您的 Gemini API Key！");
   }
   return new GoogleGenAI({ apiKey });
 }
