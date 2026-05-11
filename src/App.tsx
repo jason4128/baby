@@ -3,7 +3,7 @@ import { differenceInDays } from 'date-fns';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2, Heart } from 'lucide-react';
-import { chatWithConsultant, fileToBase64, getGeminiKey, setGeminiKey, analyzeSettingsImage } from './services/gemini';
+import { chatWithConsultant, fileToBase64, getGeminiKeys, setGeminiKeys, analyzeSettingsImage } from './services/gemini';
 import { BASE_SYSTEM_PROMPT, INITIAL_TOOLS, INITIAL_SEASONINGS, INITIAL_INGREDIENTS, CONCEPTION_DATE } from './constants';
 import { cn } from './lib/utils';
 import { AppTab } from './types';
@@ -30,7 +30,14 @@ export default function App() {
   const [newTool, setNewTool] = useState('');
   const [newSeasoning, setNewSeasoning] = useState('');
   const [newIngredient, setNewIngredient] = useState('');
-  const [geminiKeyInput, setGeminiKeyInput] = useState(() => getGeminiKey() || '');
+  const [geminiKeysInput, setGeminiKeysInput] = useState<string[]>(() => {
+    const keys = getGeminiKeys();
+    return [
+      keys[0] || '',
+      keys[1] || '',
+      keys[2] || ''
+    ];
+  });
 
   const [messages, setMessages] = useState<{ 
     role: 'user' | 'model'; 
@@ -875,42 +882,60 @@ export default function App() {
               </p>
             </div>
 
-            {/* API Key */}
+            {/* API Keys */}
             <div className="mt-8 pt-6 border-t border-amber-100">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-[#5C4D43] flex items-center gap-2">Gemini API Key</h3>
-                {getGeminiKey() ? (
-                  <span className="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-bold">已啟用</span>
+                <h3 className="text-sm font-bold text-[#5C4D43] flex items-center gap-2">Gemini API Keys</h3>
+                {getGeminiKeys().length > 0 ? (
+                  <span className="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-bold">已設定 {getGeminiKeys().length} 組</span>
                 ) : (
                   <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">未設定 (使用系統預設)</span>
                 )}
               </div>
               <p className="text-sm text-amber-800/70 mb-3">
-                部署至 GitHub Pages 等外部平台時，請輸入您的 Gemini API Key 以啟用 AI 顧問功能。（您的 Key 將只會存在您的瀏覽器中，不會上傳至伺服器）
+                您可以設定最多 3 組 Gemini API Key。當第 1 組用完額度（Quota Exceeded）時，系統會自動切換至第 2 組，依此類推。（金鑰僅存於瀏覽器）
               </p>
-              <div className="flex gap-2">
-                <input 
-                  type="password" 
-                  value={geminiKeyInput} 
-                  onChange={e => setGeminiKeyInput(e.target.value)}
-                  className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
-                  placeholder="輸入您的 Gemini API Key..."
-                />
-                <button 
-                  onClick={() => {
-                    if (!geminiKeyInput.trim()) {
-                      setGeminiKey('');
-                      showModal('API Key 已清除', '已清除自訂 API Key，系統將嘗試使用預設金鑰。');
-                    } else {
-                      setGeminiKey(geminiKeyInput);
-                      showModal('✅ API Key 已儲存', 'API Key 已儲存至瀏覽器！顧問功能現在將使用您的金鑰。');
-                    }
-                    // Refresh current key input display
-                    setGeminiKeyInput(getGeminiKey() || '');
-                  }} 
-                  className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition-colors shrink-0">
-                  儲存金鑰
-                </button>
+              
+              <div className="space-y-3">
+                {[0, 1, 2].map((index) => (
+                  <div key={index} className="flex gap-2 items-center">
+                    <span className="text-sm font-bold text-amber-900/60 w-12 text-right">第 {index + 1} 組:</span>
+                    <input 
+                      type="password" 
+                      value={geminiKeysInput[index] || ''} 
+                      onChange={e => {
+                        const newInputs = [...geminiKeysInput];
+                        newInputs[index] = e.target.value;
+                        setGeminiKeysInput(newInputs);
+                      }}
+                      className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
+                      placeholder={`輸入第 ${index + 1} 組 Gemini API Key...`}
+                    />
+                  </div>
+                ))}
+                <div className="flex justify-end pt-2">
+                  <button 
+                    onClick={() => {
+                      const validKeys = geminiKeysInput.filter(k => k.trim());
+                      if (validKeys.length === 0) {
+                        setGeminiKeys([]);
+                        showModal('API Key 已清除', '已清除所有自訂 API Key，系統將嘗試使用預設金鑰。');
+                      } else {
+                        setGeminiKeys(geminiKeysInput);
+                        showModal('✅ API Keys 已儲存', `已成功儲存 ${validKeys.length} 組 API Key！顧問功能現在將套用自動備援機制。`);
+                      }
+                      
+                      const keys = getGeminiKeys();
+                      setGeminiKeysInput([
+                        keys[0] || '',
+                        keys[1] || '',
+                        keys[2] || ''
+                      ]);
+                    }} 
+                    className="px-6 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition-colors">
+                    儲存金鑰設定
+                  </button>
+                </div>
               </div>
             </div>
 

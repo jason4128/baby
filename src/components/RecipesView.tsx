@@ -315,15 +315,14 @@ ${selectedRecipe?.steps.map((s: any, idx: number) => `${idx+1}. ${s}`).join('\n'
 
     try {
       const { GoogleGenAI } = await import('@google/genai');
-      // @ts-ignore
-      const apiKey = localStorage.getItem("GEMINI_API_KEY") || import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
-      if (!apiKey) throw new Error("請在『廚備設定』中設定您的 Gemini API Key！");
-      const client = new GoogleGenAI({ apiKey });
+      const { withKeyFallback } = await import('../services/gemini');
       
-      const response = await client.models.generateContent({
-        model: "gemini-3-flash-preview", // Use flash since it's just questions about the recipe
-        contents: prompt,
-        config: { temperature: 0.7 }
+      const response = await withKeyFallback(async (client) => {
+        return await client.models.generateContent({
+          model: "gemini-3-flash-preview", // Use flash since it's just questions about the recipe
+          contents: prompt,
+          config: { temperature: 0.7 }
+        });
       });
       
       const replyText = response.text || "無法回答，請稍後再試。";

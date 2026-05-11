@@ -62,10 +62,7 @@ export default function WifeView({ pregWeek }: { pregWeek: number }) {
     setAiLoading(true);
     try {
       const { GoogleGenAI } = await import('@google/genai');
-      // @ts-ignore
-      const apiKey = localStorage.getItem("GEMINI_API_KEY") || import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
-      if (!apiKey) throw new Error("請先設定 Gemini API Key！");
-      const client = new GoogleGenAI({ apiKey });
+      const { withKeyFallback } = await import('../services/gemini');
 
       let prompt = '';
       if (newNoteType === 'letter') {
@@ -76,10 +73,12 @@ export default function WifeView({ pregWeek }: { pregWeek: number }) {
         prompt = `老婆現在懷孕第 ${pregWeek} 週，通常會有什麼不舒服？請列出 3 個能改善這些不適的好方法（針對飲食或生活習慣）。`;
       }
 
-      const response = await client.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: { temperature: 0.8 }
+      const response = await withKeyFallback(async (ai) => {
+        return await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: { temperature: 0.8 }
+        });
       });
 
       setAiDraft(response.text || '');
