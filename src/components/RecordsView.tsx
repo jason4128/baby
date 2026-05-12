@@ -121,6 +121,10 @@ export default function RecordsView({
   const currentMonth = Math.floor(pregWeek / 4) + 1;
   const today = new Date();
   const formattedDate = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")} (${["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][today.getDay()]})`;
+  
+  // Calculate due date (LMP + 280 days)
+  const dueDate = new Date(conceptionDate.getTime() + 280 * 24 * 60 * 60 * 1000);
+  const formattedDueDate = `${dueDate.getFullYear()}/${String(dueDate.getMonth() + 1).padStart(2, "0")}/${String(dueDate.getDate()).padStart(2, "0")}`;
 
   const getFetusImagePrompt = (week: number) => {
     let size = "";
@@ -174,18 +178,20 @@ export default function RecordsView({
                     完成
                   </button>
                 </div>
+                <div className="text-[10px] text-amber-700 mt-1">
+                  （推測預產期：{formattedDueDate}）
+                </div>
               </form>
             ) : (
-              <button
-                onClick={() => setIsEditingDate(true)}
-                className="text-center font-bold text-gray-700 hover:text-amber-700 tracking-wider flex items-center gap-2 transition-colors px-3 py-1 rounded-full hover:bg-amber-50"
-                title="點擊修改懷孕日期"
-              >
-                {formattedDate}
-                <span className="text-[10px] bg-[#E8DCCB] px-1.5 py-0.5 rounded text-amber-800">
-                  修改週期 ▼
-                </span>
-              </button>
+              <div className="flex flex-col items-center gap-1 cursor-pointer group" onClick={() => setIsEditingDate(true)} title="點擊修改懷孕日期">
+                <div className="text-center font-bold text-gray-700 group-hover:text-amber-700 tracking-wider flex items-center gap-2 transition-colors px-3 py-1 rounded-full group-hover:bg-amber-50">
+                  {formattedDate}
+                  <span className="text-[10px] bg-[#E8DCCB] px-1.5 py-0.5 rounded text-amber-800">
+                    修改週期 ▼
+                  </span>
+                </div>
+                <div className="text-xs text-amber-800/60 font-medium">預產期：{formattedDueDate}</div>
+              </div>
             )}
           </div>
 

@@ -126,5 +126,74 @@ service cloud.firestore {
                     && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'isPurchased', 'suggestedWeek', 'updatedAt']);
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(itemId);
     }
+
+    // WifeNote Validations
+    function isValidWifeNote(data) {
+      return data.keys().hasAll(['userId', 'type', 'content', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.type is string && data.type.size() <= 20
+        && data.content is string && data.content.size() <= 2000
+        && data.createdAt is timestamp;
+    }
+
+    match /wife_notes/{noteId} {
+      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(noteId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(noteId)
+                    && isValidWifeNote(incoming())
+                    && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(noteId);
+    }
+
+    // Milestone Validations
+    function isValidMilestone(data) {
+      return data.keys().hasAll(['userId', 'task', 'isCompleted', 'createdAt', 'updatedAt'])
+        && data.userId == request.auth.uid
+        && data.task is string && data.task.size() <= 200
+        && data.isCompleted is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && ( !('category' in data) || (data.category is string && data.category.size() <= 50) );
+    }
+
+    match /milestones/{milestoneId} {
+      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(milestoneId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(milestoneId)
+                    && isValidMilestone(incoming())
+                    && incoming().createdAt is timestamp // we might be creating backdated ones in import
+                    && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(milestoneId)
+                    && isValidMilestone(incoming())
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().updatedAt == request.time
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['task', 'category', 'isCompleted', 'updatedAt']);
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(milestoneId);
+    }
+
+    // PostpartumCenter Validations
+    function isValidPostpartumCenter(data) {
+      return data.keys().hasAll(['userId', 'name', 'location', 'price', 'medicalCare', 'environment', 'meals', 'extraServices', 'commuteTime', 'summary', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() <= 200
+        && data.location is string && data.location.size() <= 500
+        && data.price is string && data.price.size() <= 500
+        && data.medicalCare is string && data.medicalCare.size() <= 2000
+        && data.environment is string && data.environment.size() <= 2000
+        && data.meals is string && data.meals.size() <= 2000
+        && data.extraServices is string && data.extraServices.size() <= 2000
+        && data.commuteTime is string && data.commuteTime.size() <= 2000
+        && data.summary is string && data.summary.size() <= 2000
+        && data.createdAt is timestamp;
+    }
+
+    match /postpartum_centers/{centerId} {
+      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(centerId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(centerId)
+                    && isValidPostpartumCenter(incoming())
+                    && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(centerId);
+    }
   }
 }

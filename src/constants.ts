@@ -5,7 +5,7 @@ export const BASE_SYSTEM_PROMPT = `
 # Personal Context (User Data)
 - 寶寶狀態：115年4月15日植入之 D5 胚胎 (IVF)。
 - 關鍵進度：115年5月6日已確認心跳。
-- 預產期：約 115年1月1日 (元旦寶寶)。
+- 預產期：約 116年1月3日。
 - 居住地：台灣高雄市小港區。
 - 爸爸背景：專業公務員，擅長系統管理、Home Assistant 智慧家居、Sony A7R4 攝影、COSTCO 採購。
 
@@ -78,4 +78,4 @@ export const IMPLANT_DATE = new Date("2026-04-15");
 // Since it's a D5 embryo, the theoretical conception date is:
 // Transfer Date (April 15) minus 5 days (embryo age) minus 14 days (follicular phase)
 // So conception date is March 27, 2026.
-export const CONCEPTION_DATE = new Date("2026-03-27");
+export const CONCEPTION_DATE = new Date("2026-03-29");
