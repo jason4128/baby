@@ -22,13 +22,21 @@ interface Center {
   createdAt: any;
 }
 
+interface Evaluation {
+  id: string;
+  name: string;
+  result: string;
+}
+
 export default function PostpartumView() {
   const [centers, setCenters] = useState<Center[]>([]);
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [homeLocation, setHomeLocation] = useState('高雄市小港區');
   const [work1Location, setWork1Location] = useState('屏東榮總');
   const [work2Location, setWork2Location] = useState('龍泉分院');
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isUploadingEvaluation, setIsUploadingEvaluation] = useState(false);
   const [supplementingCenterId, setSupplementingCenterId] = useState<string | null>(null);
   const [errorModal, setErrorModal] = useState<{title: string, message: string} | null>(null);
   
@@ -60,7 +68,20 @@ export default function PostpartumView() {
       setCenters(data);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'postpartum_centers'));
     
-    return () => unsub();
+    const qEvals = query(
+      collection(db, 'postpartum_evaluations'),
+      where('userId', '==', auth.currentUser.uid)
+    );
+
+    const unsubEvals = onSnapshot(qEvals, (snap) => {
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Evaluation));
+      setEvaluations(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'postpartum_evaluations'));
+    
+    return () => {
+      unsub();
+      unsubEvals();
+    };
   }, []);
 
   const handleSaveLocations = () => {
@@ -103,6 +124,78 @@ export default function PostpartumView() {
       newItems.splice(index, 1);
       return newItems;
     });
+  };
+
+  const handleUploadEvaluation = async (files: FileList | null) => {
+    if (!auth.currentUser || !files || files.length === 0) return;
+    setIsUploadingEvaluation(true);
+    try {
+      const fileRefs = Array.from(files).filter(f => f.type.startsWith('image/'));
+      if (fileRefs.length === 0) return;
+      
+      const parts = await Promise.all(fileRefs.map(async (f) => {
+        const base64Data = await fileToBase64(f);
+        return { inlineData: { mimeType: f.type, data: base64Data } };
+      }));
+      
+      const { GoogleGenAI } = await import('@google/genai');
+      
+      const prompt = `這是一張或多張的「產後護理之家評鑑結果」名單圖片。
+請幫我掃描並擷取出所有的月子中心名稱以及其評鑑結果。
+請以 JSON 陣列格式回傳，例如：
+[
+  { "name": "某某產後護理之家", "result": "合格" }
+]
+請只回傳 JSON 陣列，不要加 markdown 標記。`;
+
+      const responseText = await withKeyFallback(async (ai) => {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [
+            { role: "user", parts: [
+              ...parts,
+              { text: prompt }
+            ]}
+          ],
+          config: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+          }
+        });
+        return response.text;
+      });
+
+      if (!responseText) throw new Error("AI failed to return proper response");
+      
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error("No JSON array found in response");
+      
+      const resultsArray = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(resultsArray)) throw new Error("Parsed data is not an array");
+      
+      const batch = [];
+      const evaluationsCollection = collection(db, 'postpartum_evaluations');
+      for (const item of resultsArray) {
+        if (item.name && item.result) {
+          batch.push(addDoc(evaluationsCollection, {
+            userId: auth.currentUser.uid,
+            name: item.name,
+            result: item.result,
+            createdAt: serverTimestamp()
+          }));
+        }
+      }
+      await Promise.all(batch);
+      
+    } catch (e: any) {
+      console.error(e);
+      setErrorModal({
+        title: '掃描評鑑結果失敗',
+        message: e.message || '發生未知錯誤'
+      });
+    } finally {
+      setIsUploadingEvaluation(false);
+    }
   };
 
   const handleAnalyze = async () => {
@@ -322,6 +415,12 @@ ${JSON.stringify({
     }
   };
 
+  const getEvalResult = (centerName: string) => {
+    if (!centerName) return null;
+    const match = evaluations.find(e => centerName.includes(e.name) || e.name.includes(centerName));
+    return match ? match.result : null;
+  };
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#fdfbf7]" onPaste={handlePaste}>
       {/* Header */}
@@ -337,7 +436,30 @@ ${JSON.stringify({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className={cn(
+              "px-3 py-2 border rounded-xl text-sm font-bold shadow-sm shrink-0 cursor-pointer flex items-center gap-1.5 transition-colors",
+              isUploadingEvaluation
+                ? "bg-rose-50 border-rose-200 text-rose-400"
+                : "bg-white border-rose-200 text-rose-600 hover:bg-rose-50"
+            )}>
+              {isUploadingEvaluation ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              <span>{isUploadingEvaluation ? '掃描中...' : '掃描評鑑結果'}</span>
+              <input 
+                type="file" 
+                multiple
+                accept="image/*" 
+                className="hidden" 
+                onChange={e => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleUploadEvaluation(e.target.files);
+                    e.target.value = '';
+                  }
+                }}
+                disabled={isUploadingEvaluation}
+              />
+            </label>
+            
             {centers.length > 0 && (
               <button
                 onClick={() => setShowComparison(!showComparison)}
@@ -502,10 +624,17 @@ ${JSON.stringify({
               <div className="p-10 text-center text-slate-400">目前尚未勾選比較的月子中心，請關閉比較表後點擊核取方塊勾選。</div>
             ) : (
               <div className="flex p-4 gap-4 min-w-max">
-                {centers.filter(c => selectedCenterIds.has(c.id)).map(center => (
+                {centers.filter(c => selectedCenterIds.has(c.id)).map(center => {
+                  const evalResult = getEvalResult(center.name);
+                  return (
                   <div key={center.id} className="w-[300px] shrink-0 flex flex-col gap-4">
-                    <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100">
+                    <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 flex flex-col items-start">
                       <h4 className="font-bold text-rose-900 text-lg">{center.name}</h4>
+                      {evalResult && (
+                        <div className="mt-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200">
+                          評鑑：{evalResult}
+                        </div>
+                      )}
                       <div className="text-sm text-rose-800/80 mt-1">{center.price}</div>
                     </div>
                     
@@ -548,13 +677,16 @@ ${JSON.stringify({
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         ) : (
           <div className="space-y-6">
-            {centers.map(center => (
+            {centers.map(center => {
+              const evalResult = getEvalResult(center.name);
+              return (
               <div key={center.id} className="bg-white rounded-3xl border border-rose-100 overflow-hidden shadow-sm group">
                 <div 
                   className="bg-rose-50/50 px-6 py-4 border-b border-rose-100 flex flex-col sm:flex-row sm:items-start justify-between gap-4 cursor-pointer hover:bg-rose-50 transition-colors"
@@ -571,10 +703,17 @@ ${JSON.stringify({
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"></path></svg>
                     </label>
                     <div className="flex-1">
-                      <h3 className="text-lg font-bold text-rose-900 flex items-center gap-2">
-                        <Building className="w-5 h-5 text-rose-500" />
-                        {center.name}
-                      </h3>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <h3 className="text-lg font-bold text-rose-900 flex items-center gap-2">
+                          <Building className="w-5 h-5 text-rose-500" />
+                          {center.name}
+                        </h3>
+                        {evalResult && (
+                          <div className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 self-start sm:self-auto">
+                            評鑑：{evalResult}
+                          </div>
+                        )}
+                      </div>
                       <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-rose-800/70">
                         <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> {center.location}</span>
                         <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5"/> {center.price}</span>
@@ -674,7 +813,8 @@ ${JSON.stringify({
                 </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
