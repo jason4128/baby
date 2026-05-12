@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse, SquareParking, Store } from 'lucide-react';
+import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse, SquareParking, Store, ChevronDown, ChevronUp, ImagePlus } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { cn } from '../lib/utils';
 import { fileToBase64, withKeyFallback } from '../services/gemini';
 import Markdown from 'react-markdown';
@@ -29,10 +29,12 @@ export default function PostpartumView() {
   const [work2Location, setWork2Location] = useState('龍泉分院');
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [supplementingCenterId, setSupplementingCenterId] = useState<string | null>(null);
   const [errorModal, setErrorModal] = useState<{title: string, message: string} | null>(null);
   
   const [stagedImages, setStagedImages] = useState<{file: File, url: string}[]>([]);
   const [selectedCenterIds, setSelectedCenterIds] = useState<Set<string>>(new Set());
+  const [expandedCenterIds, setExpandedCenterIds] = useState<Set<string>>(new Set());
   const [showComparison, setShowComparison] = useState(false);
 
   useEffect(() => {
@@ -136,7 +138,7 @@ export default function PostpartumView() {
       
       const data = JSON.parse(responseText);
 
-      await addDoc(collection(db, 'postpartum_centers'), {
+      const docRef = await addDoc(collection(db, 'postpartum_centers'), {
         userId: auth.currentUser.uid,
         name: data.name || '未知月子中心',
         location: data.location || '未提供',
@@ -152,6 +154,7 @@ export default function PostpartumView() {
         createdAt: serverTimestamp()
       });
       setStagedImages([]);
+      setExpandedCenterIds(prev => new Set(prev).add(docRef.id));
     } catch (e: any) {
       console.error(e);
       setErrorModal({
@@ -187,7 +190,105 @@ export default function PostpartumView() {
     });
   };
 
-  const handleDelete = async (id: string) => {
+  const toggleCenterExpanded = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedCenterIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSupplementInfo = async (center: Center, files: FileList | File[]) => {
+    if (!auth.currentUser) return;
+    const newFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (newFiles.length === 0) return;
+    
+    setSupplementingCenterId(center.id);
+    try {
+      const parts = await Promise.all(newFiles.map(async (f) => {
+        const base64Data = await fileToBase64(f);
+        return { inlineData: { mimeType: f.type, data: base64Data } };
+      }));
+      
+      const { GoogleGenAI } = await import('@google/genai');
+      
+      const prompt = `這是一間月子中心（產後護理之家）【${center.name}】的補充資訊圖片。
+請將這些新圖片中的資訊，補充並合併至原本的資料中。如有新資訊，請擴充至對應欄位，如有衝突，以新圖片為主。
+維持原本的 JSON 格式回傳（一樣必須包含所有原本的 keys），這是原本的資料：
+${JSON.stringify({
+  name: center.name,
+  location: center.location,
+  price: center.price,
+  medicalCare: center.medicalCare,
+  environment: center.environment,
+  meals: center.meals,
+  extraServices: center.extraServices,
+  parking: center.parking || '未提供',
+  neighborhood: center.neighborhood || '未提供',
+  commuteTime: center.commuteTime,
+  summary: center.summary
+}, null, 2)}`;
+
+      const responseText = await withKeyFallback(async (ai) => {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [
+            { role: "user", parts: [
+              ...parts,
+              { text: prompt }
+            ]}
+          ],
+          config: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+          }
+        });
+        return response.text;
+      });
+
+      if (!responseText) throw new Error("AI failed to return proper response");
+      
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON found in response");
+      
+      const data = JSON.parse(jsonMatch[0]);
+      
+      await updateDoc(doc(db, 'postpartum_centers', center.id), {
+        name: data.name || center.name,
+        location: data.location || center.location,
+        price: data.price || center.price,
+        medicalCare: data.medicalCare || center.medicalCare,
+        environment: data.environment || center.environment,
+        meals: data.meals || center.meals,
+        extraServices: data.extraServices || center.extraServices,
+        parking: data.parking || center.parking || '未提供',
+        neighborhood: data.neighborhood || center.neighborhood || '未提供',
+        commuteTime: data.commuteTime || center.commuteTime,
+        summary: data.summary || center.summary,
+      });
+
+      // Expand to show new info
+      setExpandedCenterIds(prev => {
+        const next = new Set(prev);
+        next.add(center.id);
+        return next;
+      });
+
+    } catch (e: any) {
+      console.error(e);
+      setErrorModal({
+        title: '分析失敗',
+        message: e.message || '發生未知錯誤'
+      });
+    } finally {
+      setSupplementingCenterId(null);
+    }
+  };
+
+  const handleDelete = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     try {
       await deleteDoc(doc(db, 'postpartum_centers', id));
     } catch (e) {
@@ -429,9 +530,12 @@ export default function PostpartumView() {
           <div className="space-y-6">
             {centers.map(center => (
               <div key={center.id} className="bg-white rounded-3xl border border-rose-100 overflow-hidden shadow-sm group">
-                <div className="bg-rose-50/50 px-6 py-4 border-b border-rose-100 flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <label className="mt-1 flex items-center justify-center w-6 h-6 border-2 border-rose-300 rounded-md cursor-pointer has-[:checked]:bg-rose-500 has-[:checked]:border-rose-500 text-transparent has-[:checked]:text-white transition-colors">
+                <div 
+                  className="bg-rose-50/50 px-6 py-4 border-b border-rose-100 flex flex-col sm:flex-row sm:items-start justify-between gap-4 cursor-pointer hover:bg-rose-50 transition-colors"
+                  onClick={(e) => toggleCenterExpanded(center.id, e)}
+                >
+                  <div className="flex items-start gap-4 flex-1">
+                    <label className="mt-1 flex items-center justify-center w-6 h-6 border-2 border-rose-300 rounded-md cursor-pointer has-[:checked]:bg-rose-500 has-[:checked]:border-rose-500 text-transparent has-[:checked]:text-white transition-colors" onClick={(e) => e.stopPropagation()}>
                       <input 
                         type="checkbox" 
                         className="hidden" 
@@ -440,7 +544,7 @@ export default function PostpartumView() {
                       />
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"></path></svg>
                     </label>
-                    <div>
+                    <div className="flex-1">
                       <h3 className="text-lg font-bold text-rose-900 flex items-center gap-2">
                         <Building className="w-5 h-5 text-rose-500" />
                         {center.name}
@@ -451,15 +555,43 @@ export default function PostpartumView() {
                       </div>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => handleDelete(center.id)}
-                    className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-2 self-end sm:self-auto ml-10 sm:ml-0" onClick={e => e.stopPropagation()}>
+                    <label className={cn(
+                      "cursor-pointer px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 border",
+                      supplementingCenterId === center.id
+                        ? "bg-rose-100 text-rose-700 border-rose-200"
+                        : "bg-white border-rose-200 text-rose-600 hover:bg-rose-50"
+                    )}>
+                      {supplementingCenterId === center.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                      補充資訊
+                      <input 
+                        type="file" 
+                        multiple
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={e => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleSupplementInfo(center, e.target.files);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </label>
+                    <button 
+                      onClick={(e) => handleDelete(center.id, e)}
+                      className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors"
+                      title="刪除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
+                      {expandedCenterIds.has(center.id) ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                    </div>
+                  </div>
                 </div>
 
-                <div className="p-6">
+                {expandedCenterIds.has(center.id) && (
+                  <div className="p-6">
                   <div className="bg-amber-50/50 rounded-2xl p-4 border border-amber-100/50 mb-5 text-sm flex gap-3">
                     <Car className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                     <div>
@@ -520,6 +652,7 @@ export default function PostpartumView() {
                     </div>
                   )}
                 </div>
+                )}
               </div>
             ))}
           </div>
