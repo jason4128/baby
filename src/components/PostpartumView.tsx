@@ -90,7 +90,7 @@ export default function PostpartumView() {
           model: "gemini-3-flash-preview",
           contents: [
             { role: "user", parts: [
-              { inlineData: { mimeType: base64Image.mimeType, data: base64Image.data } },
+              { inlineData: { mimeType: file.type, data: base64Image } },
               { text: prompt }
             ]}
           ],
