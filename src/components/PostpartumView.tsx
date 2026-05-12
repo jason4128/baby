@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse } from 'lucide-react';
+import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse, SquareParking, Store } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { cn } from '../lib/utils';
@@ -15,6 +15,8 @@ interface Center {
   environment: string;
   meals: string;
   extraServices: string;
+  parking: string;
+  neighborhood: string;
   commuteTime: string;
   summary: string;
   createdAt: any;
@@ -28,6 +30,10 @@ export default function PostpartumView() {
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorModal, setErrorModal] = useState<{title: string, message: string} | null>(null);
+  
+  const [stagedImages, setStagedImages] = useState<{file: File, url: string}[]>([]);
+  const [selectedCenterIds, setSelectedCenterIds] = useState<Set<string>>(new Set());
+  const [showComparison, setShowComparison] = useState(false);
 
   useEffect(() => {
     // Load local settings
@@ -59,19 +65,41 @@ export default function PostpartumView() {
     localStorage.setItem('postpartum_work2', work2Location);
   };
 
-  const handleImageUpload = async (file: File) => {
-    if (!auth.currentUser) return;
+  const handleStageFiles = (files: FileList | File[]) => {
+    const newFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    const newStaged = newFiles.map(file => ({
+      file,
+      url: URL.createObjectURL(file)
+    }));
+    setStagedImages(prev => [...prev, ...newStaged]);
+  };
+
+  const removeStagedImage = (index: number) => {
+    setStagedImages(prev => {
+      const newItems = [...prev];
+      URL.revokeObjectURL(newItems[index].url);
+      newItems.splice(index, 1);
+      return newItems;
+    });
+  };
+
+  const handleAnalyze = async () => {
+    if (!auth.currentUser || stagedImages.length === 0) return;
     setIsAnalyzing(true);
     try {
-      const base64Image = await fileToBase64(file);
+      const parts = await Promise.all(stagedImages.map(async (staged) => {
+        const base64Data = await fileToBase64(staged.file);
+        return { inlineData: { mimeType: staged.file.type, data: base64Data } };
+      }));
+      
       const { GoogleGenAI } = await import('@google/genai');
       
-      const prompt = `這是一張月子中心（產後護理之家）的相關資訊截圖。
+      const prompt = `這是一間或多間月子中心（產後護理之家）的相關資訊截圖（可能包含多張）。
 我的住家地點：${homeLocation}
 工作地點1：${work1Location}
 工作地點2：${work2Location}
 
-請幫我整理這間月子中心的資料，使用 JSON 格式回傳，欄位需包含下列 key：
+請幫我整理這些圖片中關於這間月子中心的資料（若圖片混雜多間，請選擇最主要的一間，或合併重點），使用 JSON 格式回傳，欄位需包含下列 key：
 {
   "name": "月子中心名稱或不明",
   "location": "地址或大致區域",
@@ -79,7 +107,9 @@ export default function PostpartumView() {
   "medicalCare": "醫療與照護專業相關資訊（醫護比、巡診等）",
   "environment": "建築環境與安全相關資訊",
   "meals": "月子餐點與營養相關資訊",
-  "extraServices": "照護細節與附加服務",
+  "extraServices": "照護細節與其他額外服務評估",
+  "parking": "停車場評估（有沒有專屬車位、周邊好不好停等）",
+  "neighborhood": "周邊生活機能評估（附近有沒便利商店、餐廳、大醫院等）",
   "commuteTime": "預估從我的住家與兩個工作地點到此月子中心的交通時間評估（依據你網際網路的知識或常理推斷）",
   "summary": "整體綜合評估與建議（一小段話）"
 }
@@ -90,7 +120,7 @@ export default function PostpartumView() {
           model: "gemini-3-flash-preview",
           contents: [
             { role: "user", parts: [
-              { inlineData: { mimeType: file.type, data: base64Image } },
+              ...parts,
               { text: prompt }
             ]}
           ],
@@ -115,10 +145,13 @@ export default function PostpartumView() {
         environment: data.environment || '未提供',
         meals: data.meals || '未提供',
         extraServices: data.extraServices || '未提供',
+        parking: data.parking || '未提供',
+        neighborhood: data.neighborhood || '未提供',
         commuteTime: data.commuteTime || '未提供',
         summary: data.summary || '',
         createdAt: serverTimestamp()
       });
+      setStagedImages([]);
     } catch (e: any) {
       console.error(e);
       setErrorModal({
@@ -133,13 +166,25 @@ export default function PostpartumView() {
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
+    const pastedFiles: File[] = [];
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.startsWith('image/')) {
         const file = items[i].getAsFile();
-        if (file) handleImageUpload(file);
-        break; // Process one image at a time
+        if (file) pastedFiles.push(file);
       }
     }
+    if (pastedFiles.length > 0) {
+      handleStageFiles(pastedFiles);
+    }
+  };
+
+  const toggleCenterSelection = (id: string) => {
+    setSelectedCenterIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleDelete = async (id: string) => {
@@ -166,6 +211,20 @@ export default function PostpartumView() {
           </div>
 
           <div className="flex items-center gap-2">
+            {centers.length > 0 && (
+              <button
+                onClick={() => setShowComparison(!showComparison)}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-sm font-bold border transition-all shadow-sm shrink-0",
+                  showComparison 
+                    ? "bg-rose-100 text-rose-700 border-rose-200" 
+                    : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
+                )}
+              >
+                {showComparison ? '關閉比較' : '月子中心比較表'}
+              </button>
+            )}
+
             <label className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm shrink-0",
               isAnalyzing 
@@ -173,26 +232,56 @@ export default function PostpartumView() {
                 : "bg-rose-600 text-white hover:bg-rose-700 cursor-pointer active:scale-95"
             )}>
               {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-              {isAnalyzing ? 'AI 正在分析截圖...' : '上傳月子中心截圖'}
+              {isAnalyzing ? 'AI 正在分析截圖...' : '上傳圖片'}
               <input 
                 type="file" 
+                multiple
                 accept="image/*" 
                 className="hidden" 
                 onChange={e => {
                   if (e.target.files && e.target.files.length > 0) {
-                    handleImageUpload(e.target.files[0]);
+                    handleStageFiles(e.target.files);
                     e.target.value = '';
                   }
                 }}
                 disabled={isAnalyzing}
               />
             </label>
-            <p className="text-[10px] text-rose-900/40 hidden sm:block">或直接貼上 (Ctrl+V)</p>
           </div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
+        
+        {/* Staging Area */}
+        {stagedImages.length > 0 && (
+          <div className="bg-white p-4 rounded-3xl border border-rose-200 shadow-md">
+            <h3 className="font-bold text-rose-900 mb-3 text-sm">已選擇的圖片 ({stagedImages.length})</h3>
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+              {stagedImages.map((img, idx) => (
+                <div key={idx} className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden border border-slate-200 group">
+                  <img src={img.url} alt="staged" className="w-full h-full object-cover" />
+                  <button 
+                    onClick={() => removeStagedImage(idx)}
+                    className="absolute top-1 right-1 w-6 h-6 bg-black/50 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={handleAnalyze}
+                disabled={isAnalyzing}
+                className="px-6 py-2 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-xl font-bold text-sm shadow-md hover:from-rose-600 hover:to-pink-600 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                開始 AI 綜合分析
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Settings Area */}
         <div className="bg-white rounded-3xl p-5 border border-rose-100 shadow-sm">
@@ -275,77 +364,166 @@ export default function PostpartumView() {
           </div>
         )}
 
-        {/* Centers List */}
-        <div className="space-y-6">
-          {centers.map(center => (
-            <div key={center.id} className="bg-white rounded-3xl border border-rose-100 overflow-hidden shadow-sm group">
-              <div className="bg-rose-50/50 px-6 py-4 border-b border-rose-100 flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-bold text-rose-900 flex items-center gap-2">
-                    <Building className="w-5 h-5 text-rose-500" />
-                    {center.name}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-rose-800/70">
-                    <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> {center.location}</span>
-                    <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5"/> {center.price}</span>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => handleDelete(center.id)}
-                  className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-6">
-                <div className="bg-amber-50/50 rounded-2xl p-4 border border-amber-100/50 mb-5 text-sm flex gap-3">
-                  <Car className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="font-bold text-amber-900 mb-1">AI 交通評估</div>
-                    <div className="text-amber-800 leading-relaxed"><Markdown>{center.commuteTime}</Markdown></div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                  <div>
-                    <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
-                      <Stethoscope className="w-4 h-4 text-rose-600" /> 醫療與照護
-                    </div>
-                    <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.medicalCare}</div>
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-rose-600" /> 環境與安全
-                    </div>
-                    <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.environment}</div>
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
-                      <Utensils className="w-4 h-4 text-rose-600" /> 餐點與營養
-                    </div>
-                    <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.meals}</div>
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
-                      <HeartHandshake className="w-4 h-4 text-rose-600" /> 照護細節與附加服務
-                    </div>
-                    <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.extraServices}</div>
-                  </div>
-                </div>
-
-                {center.summary && (
-                  <div className="mt-5 pt-5 border-t border-slate-100">
-                    <div className="text-sm font-bold text-rose-900 mb-1 flex items-center gap-2">
-                       <Sparkles className="w-4 h-4 text-rose-500" /> 綜合評估
-                    </div>
-                    <p className="text-sm text-slate-700 leading-relaxed">{center.summary}</p>
-                  </div>
-                )}
-              </div>
+        {/* Centers List & Comparison */}
+        {showComparison ? (
+          <div className="bg-white rounded-3xl border border-rose-100 shadow-sm overflow-x-auto pb-4">
+            <div className="p-4 border-b border-rose-100 bg-rose-50/30 flex items-center justify-between min-w-max">
+              <h3 className="font-bold text-rose-900">月子中心比較表</h3>
+              <p className="text-xs text-rose-700">選擇了 {selectedCenterIds.size} 間</p>
             </div>
-          ))}
-        </div>
+            {selectedCenterIds.size === 0 ? (
+              <div className="p-10 text-center text-slate-400">目前尚未勾選比較的月子中心，請關閉比較表後點擊核取方塊勾選。</div>
+            ) : (
+              <div className="flex p-4 gap-4 min-w-max">
+                {centers.filter(c => selectedCenterIds.has(c.id)).map(center => (
+                  <div key={center.id} className="w-[300px] shrink-0 flex flex-col gap-4">
+                    <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100">
+                      <h4 className="font-bold text-rose-900 text-lg">{center.name}</h4>
+                      <div className="text-sm text-rose-800/80 mt-1">{center.price}</div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">地址/位置</div>
+                        <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.location}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">交通評估</div>
+                        <div className="text-sm bg-amber-50 p-3 rounded-xl border border-amber-100 text-amber-900">{center.commuteTime}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">醫療照護</div>
+                        <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.medicalCare}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">硬體環境</div>
+                        <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.environment}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">飲食膳食</div>
+                        <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.meals}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">停車規劃</div>
+                        <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.parking || '未提供'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">生活機能</div>
+                        <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.neighborhood || '未提供'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">其他服務</div>
+                        <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.extraServices}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-rose-500 mb-1">AI 總結</div>
+                        <div className="text-sm bg-rose-50 p-3 rounded-xl border border-rose-100 text-rose-900">{center.summary}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {centers.map(center => (
+              <div key={center.id} className="bg-white rounded-3xl border border-rose-100 overflow-hidden shadow-sm group">
+                <div className="bg-rose-50/50 px-6 py-4 border-b border-rose-100 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <label className="mt-1 flex items-center justify-center w-6 h-6 border-2 border-rose-300 rounded-md cursor-pointer has-[:checked]:bg-rose-500 has-[:checked]:border-rose-500 text-transparent has-[:checked]:text-white transition-colors">
+                      <input 
+                        type="checkbox" 
+                        className="hidden" 
+                        checked={selectedCenterIds.has(center.id)}
+                        onChange={() => toggleCenterSelection(center.id)}
+                      />
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"></path></svg>
+                    </label>
+                    <div>
+                      <h3 className="text-lg font-bold text-rose-900 flex items-center gap-2">
+                        <Building className="w-5 h-5 text-rose-500" />
+                        {center.name}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-rose-800/70">
+                        <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> {center.location}</span>
+                        <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5"/> {center.price}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleDelete(center.id)}
+                    className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-6">
+                  <div className="bg-amber-50/50 rounded-2xl p-4 border border-amber-100/50 mb-5 text-sm flex gap-3">
+                    <Car className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold text-amber-900 mb-1">AI 交通評估</div>
+                      <div className="text-amber-800 leading-relaxed"><Markdown>{center.commuteTime}</Markdown></div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                    <div>
+                      <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
+                        <Stethoscope className="w-4 h-4 text-rose-600" /> 醫療與照護
+                      </div>
+                      <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.medicalCare}</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-rose-600" /> 環境與安全
+                      </div>
+                      <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.environment}</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
+                        <Utensils className="w-4 h-4 text-rose-600" /> 餐點與營養
+                      </div>
+                      <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.meals}</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
+                        <HeartHandshake className="w-4 h-4 text-rose-600" /> 照護細節與附加服務
+                      </div>
+                      <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.extraServices}</div>
+                    </div>
+                    {center.parking && (
+                      <div>
+                        <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
+                          <SquareParking className="w-4 h-4 text-rose-600" /> 停車場評估
+                        </div>
+                        <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.parking}</div>
+                      </div>
+                    )}
+                    {center.neighborhood && (
+                      <div>
+                        <div className="font-bold text-sm text-rose-900 mb-1 flex items-center gap-1.5">
+                          <Store className="w-4 h-4 text-rose-600" /> 生活機能
+                        </div>
+                        <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl min-h-[4rem]">{center.neighborhood}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {center.summary && (
+                    <div className="mt-5 pt-5 border-t border-slate-100">
+                      <div className="text-sm font-bold text-rose-900 mb-1 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-rose-500" /> 綜合評估
+                      </div>
+                      <p className="text-sm text-slate-700 leading-relaxed">{center.summary}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {errorModal && (

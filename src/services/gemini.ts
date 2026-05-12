@@ -14,9 +14,9 @@ export function getGeminiKeys(): string[] {
 
   const envs = [];
   try {
-    if (import.meta.env.VITE_GEMINI_API_KEY) envs.push(import.meta.env.VITE_GEMINI_API_KEY);
-    if (import.meta.env.VITE_GEMINI_API_KEY_2) envs.push(import.meta.env.VITE_GEMINI_API_KEY_2);
-    if (import.meta.env.VITE_GEMINI_API_KEY_3) envs.push(import.meta.env.VITE_GEMINI_API_KEY_3);
+    if ((import.meta as any).env.VITE_GEMINI_API_KEY) envs.push((import.meta as any).env.VITE_GEMINI_API_KEY);
+    if ((import.meta as any).env.VITE_GEMINI_API_KEY_2) envs.push((import.meta as any).env.VITE_GEMINI_API_KEY_2);
+    if ((import.meta as any).env.VITE_GEMINI_API_KEY_3) envs.push((import.meta as any).env.VITE_GEMINI_API_KEY_3);
   } catch (e) {}
   
   if (envs.length > 0) return envs;

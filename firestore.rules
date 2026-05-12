@@ -173,7 +173,7 @@ service cloud.firestore {
 
     // PostpartumCenter Validations
     function isValidPostpartumCenter(data) {
-      return data.keys().hasAll(['userId', 'name', 'location', 'price', 'medicalCare', 'environment', 'meals', 'extraServices', 'commuteTime', 'summary', 'createdAt'])
+      return data.keys().hasAll(['userId', 'name', 'location', 'price', 'medicalCare', 'environment', 'meals', 'extraServices', 'parking', 'neighborhood', 'commuteTime', 'summary', 'createdAt'])
         && data.userId == request.auth.uid
         && data.name is string && data.name.size() <= 200
         && data.location is string && data.location.size() <= 500
@@ -182,6 +182,8 @@ service cloud.firestore {
         && data.environment is string && data.environment.size() <= 2000
         && data.meals is string && data.meals.size() <= 2000
         && data.extraServices is string && data.extraServices.size() <= 2000
+        && data.parking is string && data.parking.size() <= 2000
+        && data.neighborhood is string && data.neighborhood.size() <= 2000
         && data.commuteTime is string && data.commuteTime.size() <= 2000
         && data.summary is string && data.summary.size() <= 2000
         && data.createdAt is timestamp;
