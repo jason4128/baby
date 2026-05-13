@@ -86,12 +86,19 @@ export default function RecordsView({
   const [isSaving, setIsSaving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const [babyMessage, setBabyMessage] = useState("");
+  const [babyMessage, setBabyMessage] = useState<any>(null);
   const [showBabyBubble, setShowBabyBubble] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [babyResponse, setBabyResponse] = useState<string | null>(null);
   const [lastMessageIndex, setLastMessageIndex] = useState(-1);
   const bubbleTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleBabyClick = () => {
+  const handleBabyClick = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
     if (bubbleTimerRef.current) {
       clearTimeout(bubbleTimerRef.current);
     }
@@ -102,14 +109,33 @@ export default function RecordsView({
     } while (nextIndex === lastMessageIndex && BABY_MESSAGES.length > 1);
 
     setLastMessageIndex(nextIndex);
-    setBabyMessage(BABY_MESSAGES[nextIndex]);
+    const msg = BABY_MESSAGES[nextIndex];
+    
+    const normalizedMsg = typeof msg === 'string' ? { text: msg } : msg;
+    setBabyMessage(normalizedMsg as any);
+    setBabyResponse(null);
+    setShowOptions(!!(normalizedMsg as any).options);
     setShowBabyBubble(true);
 
-    // Auto hide after 10 seconds
+    if (!(normalizedMsg as any).options) {
+      bubbleTimerRef.current = setTimeout(() => {
+        setShowBabyBubble(false);
+        bubbleTimerRef.current = null;
+      }, 7000);
+    }
+  };
+
+  const handleOptionClick = (response: string) => {
+    setBabyResponse(response);
+    setShowOptions(false);
+    
+    if (bubbleTimerRef.current) {
+        clearTimeout(bubbleTimerRef.current);
+    }
     bubbleTimerRef.current = setTimeout(() => {
       setShowBabyBubble(false);
       bubbleTimerRef.current = null;
-    }, 10000);
+    }, 7000);
   };
 
   useEffect(() => {
@@ -340,19 +366,34 @@ export default function RecordsView({
           <div className="w-full aspect-square max-w-[320px] mx-auto relative flex items-center justify-center mb-4">
             {/* Speech Bubble */}
             <AnimatePresence>
-              {showBabyBubble && (
+              {showBabyBubble && babyMessage && (
                 <motion.div 
                   initial={{ opacity: 0, y: 10, scale: 0.8 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
-                  className="absolute -top-16 left-1/2 -translate-x-1/2 z-30 w-full max-w-[280px]"
+                  className="absolute bottom-[calc(100%-10px)] left-1/2 -translate-x-1/2 z-30 w-full max-w-[280px]"
                 >
                   <div className="relative bg-white border-2 border-amber-200 rounded-3xl p-4 shadow-xl shadow-amber-900/10 text-center">
-                    <p className="text-[#5C4D43] font-bold text-sm leading-relaxed">
-                      {babyMessage}
+                    <p className="text-[#5C4D43] font-bold text-sm leading-relaxed mb-1">
+                      {babyResponse ? babyResponse : babyMessage.text}
                     </p>
+                    
+                    {showOptions && babyMessage.options && (
+                      <div className="flex flex-col gap-2 mt-3">
+                        {babyMessage.options.map((opt: any, i: number) => (
+                          <button
+                            key={i}
+                            onClick={(e) => { e.stopPropagation(); handleOptionClick(opt.response); }}
+                            className="bg-amber-100/50 hover:bg-amber-200 text-amber-900 text-xs py-2 px-3 rounded-xl transition font-bold border border-amber-200/50"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    
                     {/* Triangle arrow */}
-                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b-2 border-r-2 border-amber-200 rotate-45"></div>
+                    <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b-2 border-r-2 border-amber-200 rotate-45"></div>
                   </div>
                 </motion.div>
               )}
