@@ -239,6 +239,11 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
       recognition.onerror = (event: any) => {
         console.error("Speech recognition error", event.error);
         setIsListening(false);
+        if (event.error === 'not-allowed' || event.error === 'audio-capture' || event.error === 'service-not-allowed') {
+          setIsVoiceMode(false);
+          isVoiceModeRef.current = false;
+          showModal('語音權限未開啟', '請確認瀏覽器支援且網址已允許麥克風權限！若在預覽畫面中，請透過開新分頁測試。');
+        }
       };
       recognition.onend = () => {
         setIsListening(false);
@@ -271,7 +276,10 @@ export default function RecipesView({ tools = [], seasonings = [], ingredients =
     if (newMode) {
       try { recognitionRef.current.start(); } catch (e) {}
     } else {
-      recognitionRef.current.stop();
+      if (isListening && recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e) {}
+      }
+      window.speechSynthesis.cancel();
     }
   };
 
@@ -327,6 +335,22 @@ ${selectedRecipe?.steps.map((s: any, idx: number) => `${idx+1}. ${s}`).join('\n'
       
       const replyText = response.text || "無法回答，請稍後再試。";
       setChatMessages([...updatedHistory, { role: 'model', text: replyText }]);
+
+      if (isVoiceModeRef.current && replyText) {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch(e) {}
+        }
+        const utterance = new SpeechSynthesisUtterance(replyText.replace(/\*/g, ''));
+        utterance.lang = 'zh-TW';
+        utterance.onend = () => {
+          setTimeout(() => {
+            if (isVoiceModeRef.current && !isChatLoadingRef.current) {
+              try { recognitionRef.current.start(); } catch(e) {}
+            }
+          }, 500);
+        };
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (e: any) {
       console.error(e);
       let errorMsg = '⚠️ 系統遇到錯誤。';
@@ -335,7 +359,7 @@ ${selectedRecipe?.steps.map((s: any, idx: number) => `${idx+1}. ${s}`).join('\n'
     } finally {
       setIsChatLoading(false);
       isChatLoadingRef.current = false;
-      if (isVoiceModeRef.current && recognitionRef.current) {
+      if (isVoiceModeRef.current && recognitionRef.current && !window.speechSynthesis.speaking) {
         setTimeout(() => {
           if (isVoiceModeRef.current) {
             try { recognitionRef.current.start(); } catch(e) {}

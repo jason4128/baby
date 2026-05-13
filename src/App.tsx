@@ -352,6 +352,11 @@ export default function App() {
       recognition.onerror = (event: any) => {
         console.error("Speech recognition error", event.error);
         setIsListening(false);
+        if (event.error === 'not-allowed' || event.error === 'audio-capture' || event.error === 'service-not-allowed') {
+          setIsVoiceMode(false);
+          isVoiceModeRef.current = false;
+          showModal('語音權限未開啟', '請確認瀏覽器支援且網址已允許麥克風權限！若在預覽畫面中，請透過右上角開新分頁測試。');
+        }
       };
 
       recognition.onend = () => {
@@ -386,6 +391,7 @@ export default function App() {
       setIsVoiceMode(false);
       isVoiceModeRef.current = false;
       if (isListening) recognitionRef.current.stop();
+      window.speechSynthesis.cancel();
     } else {
       setIsVoiceMode(true);
       isVoiceModeRef.current = true;
@@ -693,6 +699,23 @@ export default function App() {
           shoppingItems: Array.isArray(responseObj.shoppingItems) ? responseObj.shoppingItems : []
         }
       }]);
+
+      if (isVoiceModeRef.current && replyText) {
+        // Stop recognition while speaking
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch(e) {}
+        }
+        const utterance = new SpeechSynthesisUtterance(replyText.replace(/\*/g, ''));
+        utterance.lang = 'zh-TW';
+        utterance.onend = () => {
+          setTimeout(() => {
+            if (isVoiceModeRef.current && !isLoadingRef.current) {
+              try { recognitionRef.current.start(); } catch(e) {}
+            }
+          }, 300);
+        };
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (e: any) {
       console.error(e);
       let errorMsg = '⚠️ 顧問系統遇到錯誤，請確認網路或 API KEY 設定後再試一次。';
@@ -705,8 +728,8 @@ export default function App() {
     } finally {
       setIsLoading(false);
       isLoadingRef.current = false;
-      // Restart microphone if in continuous voice mode
-      if (isVoiceModeRef.current && recognitionRef.current) {
+      // Restart microphone if in continuous voice mode, UNLESS speechSynthesis is speaking
+      if (isVoiceModeRef.current && recognitionRef.current && !window.speechSynthesis.speaking) {
         // slightly delay to ensure rendering happens
         setTimeout(() => {
           try {
