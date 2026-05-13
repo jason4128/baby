@@ -62,6 +62,13 @@ export default function RecordsView({
   const [editNote, setEditNote] = useState("");
   const [editDate, setEditDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -95,10 +102,12 @@ export default function RecordsView({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 1024 * 700) { // 700KB limit for base64 in firestore
+      if (file.size > 1024 * 700) { 
         alert("檔案太大囉（超過 700KB），建議壓縮後再上傳，以免儲存失敗。");
       }
       setMediaFile(file);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(URL.createObjectURL(file));
     }
   };
 
@@ -109,8 +118,8 @@ export default function RecordsView({
     try {
       let finalUrl = "";
       if (mediaFile) {
-        if (mediaFile.size > 1024 * 800) {
-           throw new Error("檔案太大，無法直接存入資料庫（請小於 800KB）");
+        if (mediaFile.size > 1024 * 700) {
+           throw new Error("檔案太大，無法直接存入資料庫（請小於 700KB）");
         }
         const base64 = await fileToBase64(mediaFile);
         finalUrl = `data:${mediaFile.type};base64,${base64}`;
@@ -131,6 +140,8 @@ export default function RecordsView({
 
       setIsAdding(false);
       setMediaFile(null);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
       setNote("");
       setRecordDate(new Date().toISOString().split('T')[0]);
     } catch (e: any) {
@@ -386,24 +397,31 @@ export default function RecordsView({
                     />
                   </label>
                 </div>
+                <p className="text-[10px] text-slate-400 ml-1">
+                  * 檔案限制：建議 700KB 以內（AI 分析或儲存較快）
+                </p>
 
-                {mediaFile && (
+                {mediaFile && previewUrl && (
                   <div className="relative inline-block mt-4">
                     {mediaFile.type.startsWith("video") ? (
                       <video
-                        src={URL.createObjectURL(mediaFile)}
+                        src={previewUrl}
                         className="h-40 rounded-lg border border-slate-200 object-cover"
                         controls
                       />
                     ) : (
                       <img
-                        src={URL.createObjectURL(mediaFile)}
+                        src={previewUrl}
                         alt="preview"
                         className="h-40 rounded-lg border border-slate-200 object-cover"
                       />
                     )}
                     <button
-                      onClick={() => setMediaFile(null)}
+                      onClick={() => {
+                        setMediaFile(null);
+                        if (previewUrl) URL.revokeObjectURL(previewUrl);
+                        setPreviewUrl(null);
+                      }}
                       className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-1"
                     >
                       <X className="w-3 h-3" />
@@ -487,7 +505,16 @@ export default function RecordsView({
 
                     {record.url && (
                       <div className="mt-2 rounded-xl overflow-hidden border border-slate-100 inline-block max-w-full">
-                        {record.type === "video" ? (
+                        {record.url.startsWith("blob:") ? (
+                          <div className="bg-amber-50 p-4 border border-amber-200 rounded-xl text-center">
+                            <p className="text-xs text-amber-800 font-bold mb-1">
+                              ⚠️ 舊式資料無法在其他裝置顯示
+                            </p>
+                            <p className="text-[10px] text-amber-600">
+                              此紀錄是在舊版本上傳的，請刪除並重新上傳。
+                            </p>
+                          </div>
+                        ) : record.type === "video" ? (
                           <video
                             src={record.url}
                             controls
