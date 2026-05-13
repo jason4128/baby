@@ -135,23 +135,24 @@ export default function ChatView({ userProfile }: ChatViewProps) {
           
           return (
             <div key={msg.id} className={cn("flex flex-col group", isMe ? "items-end" : "items-start")}>
-              <div className="flex items-center gap-2 mb-1 px-1">
-                {!isMe && (
-                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center overflow-hidden border border-amber-200">
-                    {msg.avatarUrl ? (
-                      <img src={msg.avatarUrl} alt={msg.nickname} className="w-full h-full object-cover" />
-                    ) : (
-                      <User className="w-5 h-5 text-amber-500" />
-                    )}
-                  </div>
-                )}
+              <div className={cn("flex items-center gap-2 mb-1 px-1", isMe ? "flex-row-reverse" : "flex-row")}>
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center overflow-hidden border border-amber-200">
+                  {msg.avatarUrl ? (
+                    <img src={msg.avatarUrl} alt={msg.nickname} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-5 h-5 text-amber-500" />
+                  )}
+                </div>
                 <span className="text-[10px] font-bold text-amber-900/60 uppercase">
                   {msg.nickname} {msg.role === 'mama' ? '🤱' : msg.role === 'papa' ? '👨‍🍼' : '👤'}
                 </span>
                 {isAdmin && (
                   <button 
                     onClick={() => deleteMessage(msg.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 transition"
+                    className={cn(
+                      "p-1 text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100",
+                      isMe ? "scale-x-[-1]" : ""
+                    )}
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
