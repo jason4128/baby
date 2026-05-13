@@ -15,6 +15,10 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
+    function isGuest() { 
+      // anonymous users or users with isGuest flag in their profile
+      return isSignedIn() && (request.auth.token.firebase.sign_in_provider == 'anonymous');
+    }
     function isAdmin() { 
       return isSignedIn() && (
         request.auth.uid == '9fJCbAnrFGeaG8IAOsUcp3XeUcf2' || 
@@ -30,14 +34,19 @@ service cloud.firestore {
         && data.userId is string && data.userId.size() <= 128
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
+        && ( !('nickname' in data) || (data.nickname is string && data.nickname.size() <= 50) )
+        && ( !('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500) )
+        && ( !('role' in data) || (data.role is string && data.role in ['mama', 'papa', 'guest']) )
+        && ( !('isGuest' in data) || data.isGuest is bool )
         && ( !('tools' in data) || (data.tools is list && data.tools.size() <= 100) )
         && ( !('seasonings' in data) || (data.seasonings is list && data.seasonings.size() <= 100) )
         && ( !('ingredients' in data) || (data.ingredients is list && data.ingredients.size() <= 200) )
-        && ( !('conceptionDate' in data) || data.conceptionDate is string );
+        && ( !('conceptionDate' in data) || data.conceptionDate is string )
+        && ( !('oauthClientId' in data) || (data.oauthClientId is string && data.oauthClientId.size() <= 500) );
     }
 
     match /users/{userId} {
-      allow get: if isSignedIn() && (isAdmin() || request.auth.uid == userId) && isValidId(userId);
+      allow get: if isSignedIn() && (isAdmin() || request.auth.uid == userId || isGuest()) && isValidId(userId);
       allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId)
                     && isValidUserProfile(incoming())
                     && incoming().createdAt == request.time
@@ -46,13 +55,13 @@ service cloud.firestore {
                     && isValidUserProfile(incoming())
                     && incoming().createdAt == existing().createdAt
                     && incoming().updatedAt == request.time
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['tools', 'seasonings', 'ingredients', 'conceptionDate', 'updatedAt']);
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'avatarUrl', 'role', 'isGuest', 'tools', 'seasonings', 'ingredients', 'conceptionDate', 'oauthClientId', 'updatedAt']);
     }
 
     // Recipe Validations
     function isValidRecipe(data) {
       return data.keys().hasAll(['userId', 'title', 'createdAt', 'updatedAt'])
-        && data.userId == request.auth.uid
+        && data.userId is string // can be shared
         && data.title is string && data.title.size() <= 100
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
@@ -64,45 +73,84 @@ service cloud.firestore {
     }
 
     match /recipes/{recipeId} {
-      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recipeId);
-      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() && isValidId(recipeId)
+      allow get: if isSignedIn() && isValidId(recipeId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isAdmin() && isValidId(recipeId)
                     && isValidRecipe(incoming())
                     && incoming().createdAt == request.time
                     && incoming().updatedAt == request.time;
-      allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recipeId)
+      allow update: if isSignedIn() && isAdmin() && isValidId(recipeId)
                     && isValidRecipe(incoming())
                     && incoming().createdAt == existing().createdAt
                     && incoming().updatedAt == request.time
                     && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'description', 'imageUrl', 'ingredients', 'steps', 'updatedAt']);
-      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recipeId);
+      allow delete: if isSignedIn() && isAdmin() && isValidId(recipeId);
     }
 
     // BabyRecord Validations
     function isValidBabyRecord(data) {
       return data.keys().hasAll(['userId', 'date', 'type', 'createdAt'])
-        && data.userId == request.auth.uid
+        && data.userId is string
         && data.date is string && data.date.size() <= 60
         && data.type is string && data.type in ['image', 'video', 'text']
         && data.createdAt is timestamp
         && ( !('url' in data) || (data.url is string && data.url.size() <= 1000000) )
+        && ( !('driveFileId' in data) || (data.driveFileId is string && data.driveFileId.size() <= 500) )
         && ( !('note' in data) || (data.note is string && data.note.size() <= 2000) )
         && ( !('weekCount' in data) || data.weekCount is number )
         && ( !('dayCount' in data) || data.dayCount is number );
     }
 
     match /records/{recordId} {
-      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recordId);
-      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() && isValidId(recordId)
+      allow get: if isSignedIn() && isValidId(recordId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isAdmin() && isValidId(recordId)
                     && isValidBabyRecord(incoming())
                     && incoming().createdAt == request.time;
-      allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recordId)
+      allow update: if isSignedIn() && isAdmin() && isValidId(recordId)
                     && isValidBabyRecord(incoming())
                     && incoming().userId == existing().userId
                     && incoming().createdAt == existing().createdAt
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'note', 'url', 'weekCount', 'dayCount']);
-      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recordId);
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'note', 'url', 'driveFileId', 'weekCount', 'dayCount']);
+      allow delete: if isSignedIn() && isAdmin() && isValidId(recordId);
+    }
+
+    // Comment Validations
+    function isValidComment(data) {
+      return data.keys().hasAll(['userId', 'text', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.text is string && data.text.size() <= 500
+        && data.createdAt is timestamp
+        && ( !('nickname' in data) || (data.nickname is string && data.nickname.size() <= 50) )
+        && ( !('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500) )
+        && ( !('role' in data) || (data.role is string && data.role.size() <= 20) );
+    }
+
+    match /records/{recordId}/comments/{commentId} {
+      allow list, get: if isSignedIn() && isValidId(recordId);
+      allow create: if isSignedIn() && isValidId(recordId) && isValidId(commentId)
+                    && isValidComment(incoming())
+                    && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid);
+    }
+
+    // ChatMessage Validations
+    function isValidChatMessage(data) {
+      return data.keys().hasAll(['userId', 'text', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.text is string && data.text.size() <= 1000
+        && data.createdAt is timestamp
+        && ( !('nickname' in data) || (data.nickname is string && data.nickname.size() <= 50) )
+        && ( !('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500) )
+        && ( !('role' in data) || (data.role is string && data.role.size() <= 20) );
+    }
+
+    match /chatMessages/{messageId} {
+      allow list, get: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(messageId)
+                    && isValidChatMessage(incoming())
+                    && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid);
     }
 
     // ShoppingItem Validations

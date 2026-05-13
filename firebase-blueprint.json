@@ -2,18 +2,51 @@
   "entities": {
     "UserProfile": {
       "title": "User Profile",
-      "description": "Stores user's tools, seasonings, and ingredients",
+      "description": "Stores user's tools, settings, and profile info",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "description": "The user ID" },
+        "nickname": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "role": { "type": "string", "enum": ["mama", "papa", "guest"] },
+        "isGuest": { "type": "boolean" },
         "tools": { "type": "array", "items": { "type": "string" } },
         "seasonings": { "type": "array", "items": { "type": "string" } },
         "ingredients": { "type": "array", "items": { "type": "string" } },
         "conceptionDate": { "type": "string", "format": "date-time" },
+        "oauthClientId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "createdAt", "updatedAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Comments on baby records",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "nickname": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "role": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "text", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "Messages in the shared chatroom",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "nickname": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "role": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "text", "createdAt"]
     },
     "Recipe": {
       "title": "Recipe",
@@ -76,6 +109,14 @@
     "records/{recordId}": {
       "schema": "BabyRecord",
       "description": "Baby growth records"
+    },
+    "records/{recordId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments on a baby record"
+    },
+    "chatMessages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Shared chatroom messages"
     },
     "shoppingItems/{itemId}": {
       "schema": "ShoppingItem",

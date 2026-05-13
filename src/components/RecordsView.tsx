@@ -23,8 +23,15 @@ import {
   doc, 
   serverTimestamp, 
   orderBy,
-  updateDoc
+  updateDoc,
+  getDocs
 } from 'firebase/firestore';
+import { 
+  MessageSquare,
+  Send,
+  User,
+  Trash2
+} from "lucide-react";
 import { fileToBase64 } from "../services/gemini";
 import { 
   uploadToDrive, 
@@ -53,6 +60,7 @@ interface RecordsViewProps {
   conceptionDate: Date;
   onUpdateConceptionDate: (date: Date) => void;
   oauthClientId: string;
+  userProfile: any;
 }
 
 export default function RecordsView({
@@ -61,6 +69,7 @@ export default function RecordsView({
   conceptionDate,
   onUpdateConceptionDate,
   oauthClientId,
+  userProfile,
 }: RecordsViewProps) {
   const [records, setRecords] = useState<RecordEntry[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -366,13 +375,15 @@ export default function RecordsView({
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setIsAdding(!isAdding)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>新增紀錄</span>
-            </button>
+            {!userProfile?.isGuest && (
+              <button
+                onClick={() => setIsAdding(!isAdding)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>新增紀錄</span>
+              </button>
+            )}
           </div>
 
           {isAdding && (
@@ -483,123 +494,247 @@ export default function RecordsView({
               </div>
             ) : (
               records.map((record) => (
-                <div
-                  key={record.id}
-                  className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex gap-4"
-                >
-                  <div className="flex-1">
-                    {editingRecordId === record.id ? (
-                      <div className="space-y-3 mb-2 animate-in fade-in zoom-in-95 duration-200">
-                        <input
-                          type="date"
-                          value={editDate}
-                          onChange={(e) => setEditDate(e.target.value)}
-                          className="w-full text-sm px-2 py-1 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                        <textarea
-                          value={editNote}
-                          onChange={(e) => setEditNote(e.target.value)}
-                          className="w-full h-24 p-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-                        />
-                        <div className="flex gap-2 justify-end">
-                          <button
-                            onClick={() => setEditingRecordId(null)}
-                            className="px-3 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-md transition"
-                          >
-                            取消
-                          </button>
-                          <button
-                            onClick={() => handleUpdateRecord(record, editDate, editNote)}
-                            disabled={isSaving}
-                            className="px-4 py-1 text-xs font-bold bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition flex items-center gap-1"
-                          >
-                            {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                            儲存修改
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2 text-sm text-indigo-600 font-semibold mb-2 bg-indigo-50 inline-flex px-2 py-1 rounded-md">
-                          <Calendar className="w-4 h-4" />第 {record.weekCount} 週{" "}
-                          {record.dayCount} 天
-                          <span className="text-slate-400 font-normal ml-2">
-                            {new Date(record.date).toLocaleDateString()}
-                          </span>
-                        </div>
-
-                        {record.note && (
-                          <p className="text-slate-700 whitespace-pre-wrap leading-relaxed mt-2 mb-4">
-                            {record.note}
-                          </p>
-                        )}
-                      </>
-                    )}
-
-                    {record.url && (
-                      <div className="mt-2 rounded-xl overflow-hidden border border-slate-100 inline-block max-w-full">
-                        {record.url.startsWith("blob:") ? (
-                          <div className="bg-amber-50 p-4 border border-amber-200 rounded-xl text-center">
-                            <p className="text-xs text-amber-800 font-bold mb-1">
-                              ⚠️ 舊式資料無法在其他裝置顯示
-                            </p>
-                            <p className="text-[10px] text-amber-600">
-                              此紀錄是在舊版本上傳的，請刪除並重新上傳。
-                            </p>
-                          </div>
-                        ) : record.type === "video" ? (
-                          record.driveFileId ? (
-                            <div className="w-full sm:w-[400px] aspect-video">
-                              <iframe
-                                src={record.url}
-                                className="w-full h-full border-0 rounded-lg"
-                                allow="autoplay"
-                              />
-                            </div>
-                          ) : (
-                            <video
-                              src={record.url}
-                              controls
-                              className="max-h-80 w-auto rounded-lg"
-                            />
-                          )
-                        ) : (
-                          <img
-                            src={record.url}
-                            alt="Record"
-                            className="max-h-80 w-auto rounded-lg"
-                            referrerPolicy="no-referrer"
-                          />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-2 shrink-0">
+        <div key={record.id} className="space-y-2">
+          <div
+            className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex gap-4"
+          >
+            <div className="flex-1">
+              {editingRecordId === record.id ? (
+                <div className="space-y-3 mb-2 animate-in fade-in zoom-in-95 duration-200">
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full text-sm px-2 py-1 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <textarea
+                    value={editNote}
+                    onChange={(e) => setEditNote(e.target.value)}
+                    className="w-full h-24 p-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  />
+                  <div className="flex gap-2 justify-end">
                     <button
-                      onClick={() => {
-                        setEditingRecordId(record.id);
-                        setEditNote(record.note || "");
-                        setEditDate(new Date(record.date).toISOString().split('T')[0]);
-                      }}
-                      className="p-2 text-slate-300 hover:text-indigo-500 transition h-fit rounded-lg hover:bg-indigo-50"
-                      title="修改"
+                      onClick={() => setEditingRecordId(null)}
+                      className="px-3 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-md transition"
                     >
-                      <Edit className="w-4 h-4" />
+                      取消
                     </button>
                     <button
-                      onClick={() => removeRecord(record)}
-                      className="p-2 text-slate-300 hover:text-red-500 transition h-fit rounded-lg hover:bg-red-50"
-                      title="刪除"
+                      onClick={() => handleUpdateRecord(record, editDate, editNote)}
+                      disabled={isSaving}
+                      className="px-4 py-1 text-xs font-bold bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition flex items-center gap-1"
                     >
-                      <X className="w-5 h-5" />
+                      {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      儲存修改
                     </button>
                   </div>
                 </div>
-              ))
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 text-sm text-indigo-600 font-semibold mb-2 bg-indigo-50 inline-flex px-2 py-1 rounded-md">
+                    <Calendar className="w-4 h-4" />第 {record.weekCount} 週{" "}
+                    {record.dayCount} 天
+                    <span className="text-slate-400 font-normal ml-2">
+                      {new Date(record.date).toLocaleDateString()}
+                    </span>
+                  </div>
+
+                  {record.note && (
+                    <p className="text-slate-700 whitespace-pre-wrap leading-relaxed mt-2 mb-4">
+                      {record.note}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {record.url && (
+                <div className="mt-2 rounded-xl overflow-hidden border border-slate-100 inline-block max-w-full">
+                  {record.url.startsWith("blob:") ? (
+                    <div className="bg-amber-50 p-4 border border-amber-200 rounded-xl text-center">
+                      <p className="text-xs text-amber-800 font-bold mb-1">
+                        ⚠️ 舊式資料無法在其他裝置顯示
+                      </p>
+                      <p className="text-[10px] text-amber-600">
+                        此紀錄是在舊版本上傳的，請刪除並重新上傳。
+                      </p>
+                    </div>
+                  ) : record.type === "video" ? (
+                    record.driveFileId ? (
+                      <div className="w-full sm:w-[400px] aspect-video">
+                        <iframe
+                          src={record.url}
+                          className="w-full h-full border-0 rounded-lg"
+                          allow="autoplay"
+                        />
+                      </div>
+                    ) : (
+                      <video
+                        src={record.url}
+                        controls
+                        className="max-h-80 w-auto rounded-lg"
+                      />
+                    )
+                  ) : (
+                    <img
+                      src={record.url}
+                      alt="Record"
+                      className="max-h-80 w-auto rounded-lg"
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+            {!userProfile?.isGuest && (
+              <div className="flex flex-col gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setEditingRecordId(record.id);
+                    setEditNote(record.note || "");
+                    setEditDate(new Date(record.date).toISOString().split('T')[0]);
+                  }}
+                  className="p-2 text-slate-300 hover:text-indigo-500 transition h-fit rounded-lg hover:bg-indigo-50"
+                  title="修改"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => removeRecord(record)}
+                  className="p-2 text-slate-300 hover:text-red-500 transition h-fit rounded-lg hover:bg-red-50"
+                  title="刪除"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Comments Section */}
+          <CommentSection recordId={record.id} userProfile={userProfile} />
+        </div>
+      ))
             )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CommentSection({ recordId, userProfile }: { recordId: string; userProfile: any }) {
+  const [comments, setComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [showComments, setShowComments] = useState(false);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'records', recordId, 'comments'),
+      orderBy('createdAt', 'asc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setComments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, `records/${recordId}/comments`);
+    });
+
+    return () => unsubscribe();
+  }, [recordId]);
+
+  const handleAddComment = async () => {
+    if (!newComment.trim() || !auth.currentUser) return;
+    try {
+      await addDoc(collection(db, 'records', recordId, 'comments'), {
+        userId: auth.currentUser.uid,
+        nickname: userProfile?.nickname || auth.currentUser.email?.split('@')[0] || '訪客',
+        avatarUrl: userProfile?.avatarUrl || '',
+        role: userProfile?.role || 'guest',
+        text: newComment.trim(),
+        createdAt: serverTimestamp()
+      });
+      setNewComment("");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, `records/${recordId}/comments`);
+    }
+  };
+
+  const deleteComment = async (commentId: string) => {
+    if (!window.confirm("確定要刪除此留言嗎？")) return;
+    try {
+      await deleteDoc(doc(db, 'records', recordId, 'comments', commentId));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `records/${recordId}/comments/${commentId}`);
+    }
+  };
+
+  return (
+    <div className="mt-2 bg-slate-50/50 rounded-2xl overflow-hidden border border-slate-100">
+      <button 
+        onClick={() => setShowComments(!showComments)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition"
+      >
+        <div className="flex items-center gap-2 text-slate-600 font-bold text-xs uppercase tracking-wider">
+          <MessageSquare className="w-4 h-4 text-indigo-400" />
+          {comments.length} 則留言
+        </div>
+        <span className="text-slate-400 text-xs font-bold">
+          {showComments ? "收合 △" : "查看 ▽"}
+        </span>
+      </button>
+
+      {showComments && (
+        <div className="px-4 pb-4 space-y-4 animate-in fade-in slide-in-from-top-2">
+          {comments.map((comment) => {
+            const isMe = comment.userId === auth.currentUser?.uid;
+            return (
+              <div key={comment.id} className="flex gap-3 items-start group">
+                <div className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0 overflow-hidden">
+                  {comment.avatarUrl ? (
+                    <img src={comment.avatarUrl} alt={comment.nickname} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-4 h-4 text-indigo-400" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-bold text-slate-800">{comment.nickname}</span>
+                    <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-bold uppercase overflow-hidden text-ellipsis whitespace-nowrap max-w-[60px]">
+                      {comment.role === 'mama' ? '媽媽' : comment.role === 'papa' ? '爸爸' : '訪客'}
+                    </span>
+                    {(isMe || auth.currentUser?.email === 'jason2134@gmail.com') && (
+                      <button 
+                        onClick={() => deleteComment(comment.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-600 leading-relaxed break-words">{comment.text}</p>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="flex gap-2 pt-2">
+            <input
+              type="text"
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+              placeholder="寫下留言..."
+              className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              onClick={handleAddComment}
+              disabled={!newComment.trim()}
+              className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
