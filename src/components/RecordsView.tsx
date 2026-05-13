@@ -102,9 +102,6 @@ export default function RecordsView({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 1024 * 700) { 
-        alert("檔案太大囉（超過 700KB），建議壓縮後再上傳，以免儲存失敗。");
-      }
       setMediaFile(file);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(URL.createObjectURL(file));
@@ -118,9 +115,6 @@ export default function RecordsView({
     try {
       let finalUrl = "";
       if (mediaFile) {
-        if (mediaFile.size > 1024 * 700) {
-           throw new Error("檔案太大，無法直接存入資料庫（請小於 700KB）");
-        }
         const base64 = await fileToBase64(mediaFile);
         finalUrl = `data:${mediaFile.type};base64,${base64}`;
       }
@@ -145,7 +139,11 @@ export default function RecordsView({
       setNote("");
       setRecordDate(new Date().toISOString().split('T')[0]);
     } catch (e: any) {
-      alert(e.message || "上傳失敗，可能是檔案太大。");
+      if (e.message?.includes("Document too large") || e.message?.includes("exceeds the maximum")) {
+        alert("上傳失敗：檔案轉換後的大小超過了資料庫單筆 1MB 的限制，請更換較小的檔案或壓縮後再試。");
+      } else {
+        alert(e.message || "上傳失敗，請稍後再試。");
+      }
       handleFirestoreError(e, OperationType.CREATE, 'records');
     } finally {
       setIsSaving(false);
@@ -397,8 +395,8 @@ export default function RecordsView({
                     />
                   </label>
                 </div>
-                <p className="text-[10px] text-slate-400 ml-1">
-                  * 檔案限制：建議 700KB 以內（AI 分析或儲存較快）
+                <p className="text-[10px] text-slate-400 ml-1 italic">
+                  * 註：受限於資料庫規格，單筆紀錄（包含圖片/影片）之總大小不可超過 1MB。
                 </p>
 
                 {mediaFile && previewUrl && (
