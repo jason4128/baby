@@ -76,6 +76,26 @@ export const uploadToDrive = async (file: File): Promise<DriveFile> => {
   return response.json();
 };
 
+export const makeFilePublic = async (fileId: string): Promise<void> => {
+  const token = await ensureAuth();
+
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      role: 'reader',
+      type: 'anyone',
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to set public permissions on drive file');
+  }
+};
+
 export const deleteFromDrive = async (fileId: string): Promise<void> => {
   const token = await ensureAuth();
 

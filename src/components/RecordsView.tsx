@@ -26,7 +26,12 @@ import {
   updateDoc
 } from 'firebase/firestore';
 import { fileToBase64 } from "../services/gemini";
-import { uploadToDrive, deleteFromDrive, getDriveFileUrl, initDriveAuth } from "../services/googleDrive";
+import { 
+  uploadToDrive, 
+  deleteFromDrive, 
+  getDriveFileUrl, 
+  makeFilePublic 
+} from "../services/googleDrive";
 
 export type RecordEntry = {
   id: string;
@@ -133,6 +138,9 @@ export default function RecordsView({
           const driveFile = await uploadToDrive(mediaFile);
           driveFileId = driveFile.id;
           finalUrl = getDriveFileUrl(driveFile.id, isVideo);
+          
+          // Make file accessible to anyone with the link so it can be seen on other devices
+          await makeFilePublic(driveFile.id);
         } catch (driveErr) {
           console.error("Drive upload failed", driveErr);
           throw new Error("雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
