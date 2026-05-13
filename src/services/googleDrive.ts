@@ -91,7 +91,11 @@ export const deleteFromDrive = async (fileId: string): Promise<void> => {
   }
 };
 
-export const getDriveFileUrl = (fileId: string): string => {
-  // Direct link for embedding (works for most images/videos if permissions allow)
-  return `https://drive.google.com/uc?id=${fileId}&export=view`;
+export const getDriveFileUrl = (fileId: string, isVideo: boolean = false): string => {
+  if (isVideo) {
+    // For videos, use the preview embed link
+    return `https://drive.google.com/file/d/${fileId}/preview`;
+  }
+  // For images, using the thumbnail endpoint is often more reliable than the /uc endpoint
+  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1200`;
 };

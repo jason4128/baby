@@ -129,9 +129,10 @@ export default function RecordsView({
       if (mediaFile) {
         // Upload to Google Drive instead of Base64 to Firestore
         try {
+          const isVideo = mediaFile.type.startsWith("video");
           const driveFile = await uploadToDrive(mediaFile);
           driveFileId = driveFile.id;
-          finalUrl = getDriveFileUrl(driveFile.id);
+          finalUrl = getDriveFileUrl(driveFile.id, isVideo);
         } catch (driveErr) {
           console.error("Drive upload failed", driveErr);
           throw new Error("雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
@@ -537,16 +538,27 @@ export default function RecordsView({
                             </p>
                           </div>
                         ) : record.type === "video" ? (
-                          <video
-                            src={record.url}
-                            controls
-                            className="max-h-80 w-auto"
-                          />
+                          record.driveFileId ? (
+                            <div className="w-full sm:w-[400px] aspect-video">
+                              <iframe
+                                src={record.url}
+                                className="w-full h-full border-0 rounded-lg"
+                                allow="autoplay"
+                              />
+                            </div>
+                          ) : (
+                            <video
+                              src={record.url}
+                              controls
+                              className="max-h-80 w-auto rounded-lg"
+                            />
+                          )
                         ) : (
                           <img
                             src={record.url}
                             alt="Record"
-                            className="max-h-80 w-auto"
+                            className="max-h-80 w-auto rounded-lg"
+                            referrerPolicy="no-referrer"
                           />
                         )}
                       </div>
