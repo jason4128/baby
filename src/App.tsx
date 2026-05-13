@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { differenceInDays } from 'date-fns';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2, Heart, ClipboardList, Building2 } from 'lucide-react';
+import { Camera, Send, X, ChefHat, Settings, Info, Menu, Utensils, MessageSquare, Baby, User, ShoppingBag, LogIn, Mic, MicOff, ImagePlus, Loader2, Heart, ClipboardList, Building2 } from 'lucide-react';
 import { chatWithConsultant, fileToBase64, getGeminiKeys, setGeminiKeys, analyzeSettingsImage } from './services/gemini';
 import { BASE_SYSTEM_PROMPT, INITIAL_TOOLS, INITIAL_SEASONINGS, INITIAL_INGREDIENTS, CONCEPTION_DATE } from './constants';
 import { cn } from './lib/utils';
@@ -257,6 +257,18 @@ export default function App() {
             if (snapshot.exists()) {
               const data = snapshot.data();
               setUserProfile(data);
+              
+              // Automatically set default Q-version avatars for main accounts if empty
+              if (!data.avatarUrl) {
+                let defaultAvatar = '';
+                if (data.role === 'mama') defaultAvatar = 'https://api.dicebear.com/7.x/adventurer/svg?seed=MamaAvatar';
+                else if (data.role === 'papa') defaultAvatar = 'https://api.dicebear.com/7.x/adventurer/svg?seed=PapaAvatar';
+                
+                if (defaultAvatar) {
+                  updateDoc(docRef, { avatarUrl: defaultAvatar });
+                }
+              }
+
               setTools(data.tools || []);
               setSeasonings(data.seasonings || []);
               setIngredients(data.ingredients || []);
@@ -822,17 +834,25 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-amber-900/60 mb-1.5 ml-1">頭貼連結 (URL)</label>
-                  <div className="flex gap-2">
+                  <label className="block text-xs font-bold text-amber-900/60 mb-1.5 ml-1">頭貼圖示 / 連結</label>
+                  <div className="flex gap-3">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center overflow-hidden border border-amber-200 shrink-0">
+                      {userProfile?.avatarUrl ? (
+                        <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <User className="w-5 h-5 text-amber-500" />
+                      )}
+                    </div>
                     <input 
                       type="text" 
                       value={userProfile?.avatarUrl || ''} 
                       onChange={e => setUserProfile((prev: any) => ({ ...prev, avatarUrl: e.target.value }))}
                       onBlur={() => saveToFirebase({ avatarUrl: userProfile?.avatarUrl })}
                       className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
-                      placeholder="https://... (圖片連結)"
+                      placeholder="輸入圖片 URL 或 Emoji..."
                     />
                   </div>
+                  <p className="text-[10px] text-amber-900/40 mt-1 ml-13 italic">支援網路圖片連結或頭貼生成器網址</p>
                 </div>
               </div>
             </div>

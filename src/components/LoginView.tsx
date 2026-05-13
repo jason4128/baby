@@ -9,9 +9,19 @@ export default function LoginView() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [guestNickname, setGuestNickname] = useState('');
+  const [selectedAvatar, setSelectedAvatar] = useState('https://api.dicebear.com/7.x/adventurer/svg?seed=guest1');
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const avatars = [
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest1',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest2',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest3',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest4',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest5',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest6',
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +40,7 @@ export default function LoginView() {
         await setDoc(doc(db, 'users', cred.user.uid), {
           userId: cred.user.uid,
           nickname: guestNickname.trim(),
+          avatarUrl: selectedAvatar,
           isGuest: true,
           role: 'guest',
           createdAt: serverTimestamp(),
@@ -73,16 +84,40 @@ export default function LoginView() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {isGuestMode ? (
-            <div>
-              <label className="block text-sm font-bold text-[#5C4D43] mb-1.5">您的暱稱</label>
-              <input
-                type="text"
-                value={guestNickname}
-                onChange={(e) => setGuestNickname(e.target.value)}
-                required
-                className="w-full bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43] transition-all font-medium"
-                placeholder="例如：王小明"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-[#5C4D43] mb-1.5">您的暱稱</label>
+                <input
+                  type="text"
+                  value={guestNickname}
+                  onChange={(e) => setGuestNickname(e.target.value)}
+                  required
+                  className="w-full bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43] transition-all font-medium"
+                  placeholder="例如：王小明"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#5C4D43] mb-3">選擇您的頭貼</label>
+                <div className="grid grid-cols-6 gap-2">
+                  {avatars.map((url) => (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => setSelectedAvatar(url)}
+                      className={`relative aspect-square rounded-full overflow-hidden border-2 transition-all p-1 ${
+                        selectedAvatar === url ? 'border-amber-500 bg-amber-50' : 'border-transparent bg-slate-50 opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <img src={url} alt="Avatar option" className="w-full h-full object-contain" />
+                      {selectedAvatar === url && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-amber-500/10">
+                          <div className="w-1 h-1 bg-white rounded-full shadow-sm" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : (
             <>

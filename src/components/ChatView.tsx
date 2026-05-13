@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Send, Baby, User } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -117,7 +117,12 @@ export default function ChatView({ userProfile }: ChatViewProps) {
             {['mama', 'papa', 'guest'].map((r) => (
               <button
                 key={r}
-                onClick={() => setCurrentRole(r)}
+                  onClick={() => {
+                    setCurrentRole(r);
+                    if (auth.currentUser) {
+                      updateDoc(doc(db, 'users', auth.currentUser.uid), { role: r });
+                    }
+                  }}
                 className={cn(
                   "px-4 py-1.5 rounded-lg text-xs font-bold transition-all capitalize",
                   currentRole === r 

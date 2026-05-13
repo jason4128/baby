@@ -94,8 +94,8 @@ export default function RecordsView({
     
     const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
     const q = (isMainAccount || userProfile?.isGuest)
-      ? query(collection(db, 'records'), orderBy('createdAt', 'desc'))
-      : query(collection(db, 'records'), where('userId', '==', auth.currentUser.uid), orderBy('createdAt', 'desc'));
+      ? query(collection(db, 'records'), orderBy('date', 'desc'))
+      : query(collection(db, 'records'), where('userId', '==', auth.currentUser.uid), orderBy('date', 'desc'));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedRecords = snapshot.docs.map(doc => ({ 
@@ -727,7 +727,12 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
               {['mama', 'papa', 'guest'].map((r) => (
                 <button
                   key={r}
-                  onClick={() => setCurrentRole(r)}
+                  onClick={() => {
+                    setCurrentRole(r);
+                    if (auth.currentUser) {
+                      updateDoc(doc(db, 'users', auth.currentUser.uid), { role: r });
+                    }
+                  }}
                   className={cn(
                     "flex-1 py-1 rounded-lg text-[10px] font-bold transition-all capitalize",
                     currentRole === r 
