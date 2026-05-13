@@ -10,8 +10,11 @@ import {
   Edit,
   Save,
   Loader2,
+  Heart,
 } from "lucide-react";
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from "../lib/utils";
+import { BABY_MESSAGES } from '../constants/babyMessages';
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
 import { 
   collection, 
@@ -82,6 +85,26 @@ export default function RecordsView({
   const [editDate, setEditDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const [babyMessage, setBabyMessage] = useState("");
+  const [showBabyBubble, setShowBabyBubble] = useState(false);
+  const [lastMessageIndex, setLastMessageIndex] = useState(-1);
+
+  const handleBabyClick = () => {
+    let nextIndex;
+    do {
+      nextIndex = Math.floor(Math.random() * BABY_MESSAGES.length);
+    } while (nextIndex === lastMessageIndex && BABY_MESSAGES.length > 1);
+
+    setLastMessageIndex(nextIndex);
+    setBabyMessage(BABY_MESSAGES[nextIndex]);
+    setShowBabyBubble(true);
+
+    // Auto hide after 5 seconds
+    setTimeout(() => {
+      setShowBabyBubble(false);
+    }, 5000);
+  };
 
   useEffect(() => {
     return () => {
@@ -300,7 +323,7 @@ export default function RecordsView({
             )}
           </div>
 
-          <div className="flex flex-col items-center justify-center gap-1 mb-6 mt-4">
+          <div className="flex flex-col items-center justify-center gap-1 mb-2 mt-4">
             <h3 className="text-[#8B7355] font-bold tracking-widest text-xs uppercase">
               today's
             </h3>
@@ -308,7 +331,31 @@ export default function RecordsView({
           </div>
 
           <div className="w-full aspect-square max-w-[320px] mx-auto relative flex items-center justify-center mb-4">
-            <div className="absolute inset-0 rounded-full shadow-sm border border-amber-50 overflow-hidden bg-white">
+            {/* Speech Bubble */}
+            <AnimatePresence>
+              {showBabyBubble && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10, scale: 0.8 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
+                  className="absolute -top-16 left-1/2 -translate-x-1/2 z-30 w-full max-w-[280px]"
+                >
+                  <div className="relative bg-white border-2 border-amber-200 rounded-3xl p-4 shadow-xl shadow-amber-900/10 text-center">
+                    <p className="text-[#5C4D43] font-bold text-sm leading-relaxed">
+                      {babyMessage}
+                    </p>
+                    {/* Triangle arrow */}
+                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b-2 border-r-2 border-amber-200 rotate-45"></div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <motion.div 
+              whileTap={{ scale: 0.95, rotate: [0, -2, 2, 0] }}
+              onClick={handleBabyClick}
+              className="absolute inset-0 rounded-full shadow-sm border border-amber-50 overflow-hidden bg-white cursor-pointer z-10"
+            >
               {/* Cute Baby Fetus Illustration */}
               <div className="relative w-full h-full flex flex-col items-center justify-center p-2">
                 <img
@@ -317,10 +364,10 @@ export default function RecordsView({
                   className="w-full h-full object-contain rounded-full shadow-inner"
                 />
               </div>
-            </div>
+            </motion.div>
 
             {/* Floating Icons */}
-            <div className="absolute right-0 bottom-12 flex flex-col gap-4">
+            <div className="absolute right-0 bottom-12 flex flex-col gap-4 z-20">
               <div className="w-12 h-12 bg-[#FFF4E6] rounded-full shadow-sm flex items-center justify-center text-red-400 text-xl border border-amber-50 relative group cursor-pointer hover:scale-105 transition-transform">
                 <span className="absolute -top-6 text-[10px] text-gray-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                   \ 推薦 /
