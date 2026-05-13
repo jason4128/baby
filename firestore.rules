@@ -82,10 +82,10 @@ service cloud.firestore {
     function isValidBabyRecord(data) {
       return data.keys().hasAll(['userId', 'date', 'type', 'createdAt'])
         && data.userId == request.auth.uid
-        && data.date is string && data.date.size() <= 50
+        && data.date is string && data.date.size() <= 60
         && data.type is string && data.type in ['image', 'video', 'text']
         && data.createdAt is timestamp
-        && ( !('url' in data) || (data.url is string && data.url.size() <= 1000) )
+        && ( !('url' in data) || (data.url is string && data.url.size() <= 1000000) )
         && ( !('note' in data) || (data.note is string && data.note.size() <= 2000) )
         && ( !('weekCount' in data) || data.weekCount is number )
         && ( !('dayCount' in data) || data.dayCount is number );
@@ -97,6 +97,11 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(recordId)
                     && isValidBabyRecord(incoming())
                     && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recordId)
+                    && isValidBabyRecord(incoming())
+                    && incoming().userId == existing().userId
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'note', 'url', 'weekCount', 'dayCount']);
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(recordId);
     }
 

@@ -7,6 +7,9 @@ import {
   X,
   Calendar,
   Baby,
+  Edit,
+  Save,
+  Loader2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
@@ -19,8 +22,10 @@ import {
   deleteDoc, 
   doc, 
   serverTimestamp, 
-  orderBy 
+  orderBy,
+  updateDoc
 } from 'firebase/firestore';
+import { fileToBase64 } from "../services/gemini";
 
 export type RecordEntry = {
   id: string;
@@ -52,6 +57,11 @@ export default function RecordsView({
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [note, setNote] = useState("");
+  const [recordDate, setRecordDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+  const [editNote, setEditNote] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -74,37 +84,79 @@ export default function RecordsView({
     return () => unsubscribe();
   }, [auth.currentUser?.uid]);
 
+  const calculateWeekDay = (targetDate: Date, start: Date) => {
+    const diffTime = targetDate.getTime() - start.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const week = Math.floor(diffDays / 7);
+    const day = diffDays % 7;
+    return { week, day };
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setMediaFile(e.target.files[0]);
+      const file = e.target.files[0];
+      if (file.size > 1024 * 700) { // 700KB limit for base64 in firestore
+        alert("檔案太大囉（超過 700KB），建議壓縮後再上傳，以免儲存失敗。");
+      }
+      setMediaFile(file);
     }
   };
 
   const handleAddRecord = async () => {
     if (!auth.currentUser || (!mediaFile && !note.trim())) return;
+    setIsSaving(true);
 
     try {
-      // Note: Real file persistence would require Firebase Storage.
-      // Here we use ObjectURL for the current session, but it won't persist across reloads.
-      // For a production app, we would upload to Storage and save the URL.
-      const url = mediaFile ? URL.createObjectURL(mediaFile) : "";
+      let finalUrl = "";
+      if (mediaFile) {
+        if (mediaFile.size > 1024 * 800) {
+           throw new Error("檔案太大，無法直接存入資料庫（請小於 800KB）");
+        }
+        const base64 = await fileToBase64(mediaFile);
+        finalUrl = `data:${mediaFile.type};base64,${base64}`;
+      }
+      
+      const { week, day } = calculateWeekDay(new Date(recordDate), conceptionDate);
       
       await addDoc(collection(db, 'records'), {
         userId: auth.currentUser.uid,
-        date: new Date().toISOString(),
+        date: new Date(recordDate).toISOString(),
         type: mediaFile?.type.startsWith("video") ? "video" : (mediaFile ? "image" : "text"),
-        url: url,
+        url: finalUrl,
         note: note.trim(),
-        weekCount: pregWeek,
-        dayCount: pregDay,
+        weekCount: week,
+        dayCount: day,
         createdAt: serverTimestamp()
       });
 
       setIsAdding(false);
       setMediaFile(null);
       setNote("");
-    } catch (e) {
+      setRecordDate(new Date().toISOString().split('T')[0]);
+    } catch (e: any) {
+      alert(e.message || "上傳失敗，可能是檔案太大。");
       handleFirestoreError(e, OperationType.CREATE, 'records');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUpdateRecord = async (record: RecordEntry, newDate: string, newNote: string) => {
+    if (!auth.currentUser) return;
+    setIsSaving(true);
+    try {
+      const { week, day } = calculateWeekDay(new Date(newDate), conceptionDate);
+      await updateDoc(doc(db, 'records', record.id), {
+        date: new Date(newDate).toISOString(),
+        note: newNote.trim(),
+        weekCount: week,
+        dayCount: day
+      });
+      setEditingRecordId(null);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `records/${record.id}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -294,6 +346,16 @@ export default function RecordsView({
               </div>
 
               <div className="space-y-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-slate-500 ml-1">選擇日期</label>
+                  <input
+                    type="date"
+                    value={recordDate}
+                    onChange={(e) => setRecordDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-indigo-50/30 font-medium"
+                  />
+                </div>
+
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
@@ -375,18 +437,52 @@ export default function RecordsView({
                   className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex gap-4"
                 >
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 text-sm text-indigo-600 font-semibold mb-2 bg-indigo-50 inline-flex px-2 py-1 rounded-md">
-                      <Calendar className="w-4 h-4" />第 {record.weekCount} 週{" "}
-                      {record.dayCount} 天
-                      <span className="text-slate-400 font-normal ml-2">
-                        {new Date(record.date).toLocaleDateString()}
-                      </span>
-                    </div>
+                    {editingRecordId === record.id ? (
+                      <div className="space-y-3 mb-2 animate-in fade-in zoom-in-95 duration-200">
+                        <input
+                          type="date"
+                          value={editDate}
+                          onChange={(e) => setEditDate(e.target.value)}
+                          className="w-full text-sm px-2 py-1 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <textarea
+                          value={editNote}
+                          onChange={(e) => setEditNote(e.target.value)}
+                          className="w-full h-24 p-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => setEditingRecordId(null)}
+                            className="px-3 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-md transition"
+                          >
+                            取消
+                          </button>
+                          <button
+                            onClick={() => handleUpdateRecord(record, editDate, editNote)}
+                            disabled={isSaving}
+                            className="px-4 py-1 text-xs font-bold bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition flex items-center gap-1"
+                          >
+                            {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                            儲存修改
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 text-sm text-indigo-600 font-semibold mb-2 bg-indigo-50 inline-flex px-2 py-1 rounded-md">
+                          <Calendar className="w-4 h-4" />第 {record.weekCount} 週{" "}
+                          {record.dayCount} 天
+                          <span className="text-slate-400 font-normal ml-2">
+                            {new Date(record.date).toLocaleDateString()}
+                          </span>
+                        </div>
 
-                    {record.note && (
-                      <p className="text-slate-700 whitespace-pre-wrap leading-relaxed mt-2 mb-4">
-                        {record.note}
-                      </p>
+                        {record.note && (
+                          <p className="text-slate-700 whitespace-pre-wrap leading-relaxed mt-2 mb-4">
+                            {record.note}
+                          </p>
+                        )}
+                      </>
                     )}
 
                     {record.url && (
@@ -407,12 +503,26 @@ export default function RecordsView({
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => removeRecord(record.id)}
-                    className="shrink-0 p-2 text-slate-300 hover:text-red-500 transition h-fit rounded-lg hover:bg-red-50"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={() => {
+                        setEditingRecordId(record.id);
+                        setEditNote(record.note || "");
+                        setEditDate(new Date(record.date).toISOString().split('T')[0]);
+                      }}
+                      className="p-2 text-slate-300 hover:text-indigo-500 transition h-fit rounded-lg hover:bg-indigo-50"
+                      title="修改"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => removeRecord(record.id)}
+                      className="p-2 text-slate-300 hover:text-red-500 transition h-fit rounded-lg hover:bg-red-50"
+                      title="刪除"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
