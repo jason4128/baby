@@ -709,7 +709,7 @@ export default function App() {
     { id: 'wife', label: '老婆專區', icon: Heart },
     { id: 'milestones', label: '重要紀事', icon: ClipboardList },
     { id: 'postpartum', label: '產後護理', icon: Building2 },
-    { id: 'chatroom', label: '家屬參與', icon: MessageSquare },
+    { id: 'chatroom', label: '聊天室', icon: MessageSquare },
     { id: 'settings', label: '廚備設定', icon: Settings },
   ] as const;
 
@@ -807,7 +807,7 @@ export default function App() {
             {/* User Profile Info */}
             <div className="pb-6 border-b border-amber-50">
               <h3 className="text-sm font-bold text-[#5C4D43] mb-3 flex items-center gap-2">個人身分設定</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-amber-900/60 mb-1.5 ml-1">我的暱稱</label>
                   <div className="flex gap-2">
@@ -832,29 +832,6 @@ export default function App() {
                       className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
                       placeholder="https://... (圖片連結)"
                     />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-amber-900/60 mb-1.5 ml-1">留言角色身分</label>
-                  <div className="flex bg-[#FFF9F0] p-1 rounded-xl border border-[#E8DCCB]">
-                    {['mama', 'papa', 'guest'].map((r) => (
-                      <button
-                        key={r}
-                        onClick={() => {
-                          const newRole = r;
-                          setUserProfile((prev: any) => ({ ...prev, role: newRole }));
-                          saveToFirebase({ role: newRole });
-                        }}
-                        className={cn(
-                          "flex-1 py-1.5 rounded-lg text-xs font-bold transition-all capitalize",
-                          userProfile?.role === r 
-                            ? "bg-amber-600 text-white shadow-sm" 
-                            : "text-[#8B7355] hover:bg-white/50"
-                        )}
-                      >
-                        {r === 'mama' ? '媽媽 🤱' : r === 'papa' ? '爸爸 👨‍🍼' : '訪客 👤'}
-                      </button>
-                    ))}
                   </div>
                 </div>
               </div>
@@ -1311,21 +1288,28 @@ export default function App() {
           </div>
 
           <div className="space-y-1">
-            {navItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => { setActiveTab(item.id); setShowMobileNav(false); }}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[15px] font-bold transition-all duration-200",
-                  activeTab === item.id 
-                    ? "bg-[#5C4D43] text-white shadow-md shadow-amber-900/10 translate-x-1" 
-                    : "text-[#8B7355] hover:bg-[#F4EBE1] hover:text-[#5C4D43]"
-                )}
-              >
-                <item.icon className="w-5 h-5" />
-                {item.label}
-              </button>
-            ))}
+            {navItems
+              .filter(item => {
+                if (userProfile?.isGuest) {
+                  return item.id === 'records' || item.id === 'chatroom';
+                }
+                return true;
+              })
+              .map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => { setActiveTab(item.id); setShowMobileNav(false); }}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[15px] font-bold transition-all duration-200",
+                    activeTab === item.id 
+                      ? "bg-[#5C4D43] text-white shadow-md shadow-amber-900/10 translate-x-1" 
+                      : "text-[#8B7355] hover:bg-[#F4EBE1] hover:text-[#5C4D43]"
+                  )}
+                >
+                  <item.icon className="w-5 h-5" />
+                  {item.label}
+                </button>
+              ))}
           </div>
         </div>
 

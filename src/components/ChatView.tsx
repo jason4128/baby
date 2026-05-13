@@ -47,6 +47,12 @@ export default function ChatView({ userProfile }: ChatViewProps) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const [currentRole, setCurrentRole] = useState(userProfile?.role || 'guest');
+
+  useEffect(() => {
+    if (userProfile?.role) setCurrentRole(userProfile.role);
+  }, [userProfile?.role]);
+
   const handleSendMessage = async () => {
     if (!input.trim() || !auth.currentUser) return;
 
@@ -58,7 +64,7 @@ export default function ChatView({ userProfile }: ChatViewProps) {
         userId: auth.currentUser.uid,
         nickname: userProfile?.nickname || auth.currentUser.email?.split('@')[0] || '神秘嘉賓',
         avatarUrl: userProfile?.avatarUrl || '',
-        role: userProfile?.role || 'guest',
+        role: currentRole,
         text: messageText,
         createdAt: serverTimestamp()
       });
@@ -106,22 +112,40 @@ export default function ChatView({ userProfile }: ChatViewProps) {
       </div>
 
       <div className="p-4 bg-white border-t border-amber-100">
-        <div className="flex gap-2 max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="輸入訊息參與討論..."
-            className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
-          />
-          <button
-            onClick={handleSendMessage}
-            disabled={!input.trim()}
-            className="p-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition disabled:opacity-50"
-          >
-            <Send className="w-5 h-5" />
-          </button>
+        <div className="max-w-4xl mx-auto space-y-3">
+          <div className="flex bg-[#FFF9F0] p-1 rounded-xl border border-[#E8DCCB] w-fit mx-auto sm:mx-0">
+            {['mama', 'papa', 'guest'].map((r) => (
+              <button
+                key={r}
+                onClick={() => setCurrentRole(r)}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all capitalize",
+                  currentRole === r 
+                    ? "bg-amber-600 text-white shadow-sm" 
+                    : "text-[#8B7355] hover:bg-white/50"
+                )}
+              >
+                {r === 'mama' ? '媽媽 🤱' : r === 'papa' ? '爸爸 👨‍🍼' : '訪客 👤'}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+              placeholder="輸入訊息參與討論..."
+              className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
+            />
+            <button
+              onClick={handleSendMessage}
+              disabled={!input.trim()}
+              className="p-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition disabled:opacity-50"
+            >
+              <Send className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

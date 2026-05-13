@@ -92,8 +92,8 @@ export default function RecordsView({
   useEffect(() => {
     if (!auth.currentUser) return;
     
-    const isAdmin = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
-    const q = isAdmin
+    const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
+    const q = (isMainAccount || userProfile?.isGuest)
       ? query(collection(db, 'records'), orderBy('createdAt', 'desc'))
       : query(collection(db, 'records'), where('userId', '==', auth.currentUser.uid), orderBy('createdAt', 'desc'));
     
@@ -641,6 +641,12 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
     return () => unsubscribe();
   }, [recordId]);
 
+  const [currentRole, setCurrentRole] = useState(userProfile?.role || 'guest');
+
+  useEffect(() => {
+    if (userProfile?.role) setCurrentRole(userProfile.role);
+  }, [userProfile?.role]);
+
   const handleAddComment = async () => {
     if (!newComment.trim() || !auth.currentUser) return;
     try {
@@ -648,7 +654,7 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
         userId: auth.currentUser.uid,
         nickname: userProfile?.nickname || auth.currentUser.email?.split('@')[0] || '訪客',
         avatarUrl: userProfile?.avatarUrl || '',
-        role: userProfile?.role || 'guest',
+        role: currentRole,
         text: newComment.trim(),
         createdAt: serverTimestamp()
       });
@@ -716,22 +722,40 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
             );
           })}
 
-          <div className="flex gap-2 pt-2">
-            <input
-              type="text"
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
-              placeholder="寫下留言..."
-              className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <button
-              onClick={handleAddComment}
-              disabled={!newComment.trim()}
-              className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition disabled:opacity-50"
-            >
-              <Send className="w-4 h-4" />
-            </button>
+          <div className="space-y-2 pt-2">
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+              {['mama', 'papa', 'guest'].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setCurrentRole(r)}
+                  className={cn(
+                    "flex-1 py-1 rounded-lg text-[10px] font-bold transition-all capitalize",
+                    currentRole === r 
+                      ? "bg-indigo-600 text-white shadow-sm" 
+                      : "text-slate-500 hover:bg-white/50"
+                  )}
+                >
+                  {r === 'mama' ? '媽媽 🤱' : r === 'papa' ? '爸爸 👨‍🍼' : '訪客 👤'}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+                placeholder="寫下留言..."
+                className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={handleAddComment}
+                disabled={!newComment.trim()}
+                className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition disabled:opacity-50"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
