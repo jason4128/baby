@@ -20,6 +20,8 @@ import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 
+import { initDriveAuth } from './services/googleDrive';
+
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -182,6 +184,23 @@ export default function App() {
   const [pregWeek, setPregWeek] = useState(0);
   const [pregDay, setPregDay] = useState(0);
   const [conceptionDate, setConceptionDate] = useState<Date>(CONCEPTION_DATE);
+  const [oauthClientId, setOauthClientId] = useState<string>('');
+
+  useEffect(() => {
+    // Load oauthClientId from Firestore if exists
+    if (user) {
+      const loadConfig = async () => {
+        const docRef = doc(db, 'users', user.uid);
+        const snap = await getDoc(docRef);
+        if (snap.exists() && snap.data().oauthClientId) {
+          const clientId = snap.data().oauthClientId;
+          setOauthClientId(clientId);
+          initDriveAuth(clientId);
+        }
+      };
+      loadConfig();
+    }
+  }, [user]);
 
   useEffect(() => {
     // Calculate current pregnancy week
@@ -722,9 +741,25 @@ export default function App() {
     }
   };
 
+  const handleUpdateOauthClientId = async (clientId: string) => {
+    setOauthClientId(clientId);
+    if (user && clientId.trim()) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          oauthClientId: clientId,
+          updatedAt: serverTimestamp()
+        });
+        initDriveAuth(clientId);
+        showModal('✅ 設定已儲存', 'Google OAuth Client ID 已儲存並初始化。');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
   const renderContent = () => {
     if (activeTab === 'recipes') return <RecipesView tools={tools} seasonings={seasonings} ingredients={ingredients} pregWeek={pregWeek} />;
-    if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} />;
+    if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} oauthClientId={oauthClientId} />;
     if (activeTab === 'shopping') return <ShoppingView pregWeek={pregWeek} />;
     if (activeTab === 'wife') return <WifeView pregWeek={pregWeek} />;
     if (activeTab === 'milestones') return <MilestonesView />;
@@ -886,6 +921,43 @@ export default function App() {
               <p className="text-sm text-amber-800/80 leading-relaxed font-medium">
                 您的廚房裝備、調味料與食材會自動同步給育產顧問，顧問將依據這些條件為您設計孕期專屬的冷凍快速包食譜，以及在採購規劃中標記需要購買的食材。
               </p>
+            </div>
+
+            {/* Google Drive Settings */}
+            <div className="mt-8 pt-6 border-t border-amber-100">
+               <h3 className="text-sm font-bold text-[#5C4D43] mb-3 flex items-center gap-2">Google Drive 雲端儲存</h3>
+               <p className="text-sm text-amber-800/70 mb-4">
+                 由於資料庫大小限制，照片與影片將儲存於您的 Google Drive。請提供 Google Cloud Console 的 OAuth Client ID。
+               </p>
+               <div className="space-y-3">
+                  <div className="flex gap-2 items-center">
+                    <span className="text-sm font-bold text-amber-900/60 w-24 text-right">Client ID:</span>
+                    <input 
+                      type="text" 
+                      value={oauthClientId} 
+                      onChange={e => setOauthClientId(e.target.value)}
+                      className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
+                      placeholder="輸入 OAuth Client ID..."
+                    />
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <button 
+                      onClick={() => handleUpdateOauthClientId(oauthClientId)}
+                      className="px-6 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition-colors">
+                      儲存 Google 設定
+                    </button>
+                  </div>
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 mt-2">
+                    <p className="text-xs text-amber-800 leading-relaxed font-medium">
+                      💡 <strong>如何取得 Client ID？</strong><br/>
+                      1. 前往 <a href="https://console.cloud.google.com/" target="_blank" className="text-amber-600 underline">Google Cloud Console</a><br/>
+                      2. 建立專案並在「API 和服務」中開啟 Google Drive API<br/>
+                      3. 在「憑證」中建立「OAuth 2.0 用戶端 ID」（類型選 Web Application）<br/>
+                      4. 在「已授權的 JavaScript 來源」加入 <code>{window.location.origin}</code><br/>
+                      5. 複製 Client ID 並貼到上方。
+                    </p>
+                  </div>
+               </div>
             </div>
 
             {/* API Keys */}

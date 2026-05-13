@@ -26,12 +26,14 @@ import {
   updateDoc
 } from 'firebase/firestore';
 import { fileToBase64 } from "../services/gemini";
+import { uploadToDrive, deleteFromDrive, getDriveFileUrl, initDriveAuth } from "../services/googleDrive";
 
 export type RecordEntry = {
   id: string;
   date: string;
   type: "image" | "video" | "text";
   url: string;
+  driveFileId?: string;
   note: string;
   weekCount: number;
   dayCount: number;
@@ -44,6 +46,7 @@ interface RecordsViewProps {
   pregDay: number;
   conceptionDate: Date;
   onUpdateConceptionDate: (date: Date) => void;
+  oauthClientId: string;
 }
 
 export default function RecordsView({
@@ -51,6 +54,7 @@ export default function RecordsView({
   pregDay,
   conceptionDate,
   onUpdateConceptionDate,
+  oauthClientId,
 }: RecordsViewProps) {
   const [records, setRecords] = useState<RecordEntry[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -110,13 +114,28 @@ export default function RecordsView({
 
   const handleAddRecord = async () => {
     if (!auth.currentUser || (!mediaFile && !note.trim())) return;
+    
+    if (mediaFile && !oauthClientId) {
+      alert("請先前往「廚備設定」設定 Google OAuth Client ID，才能上傳照片或影片到 Google Drive。");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
       let finalUrl = "";
+      let driveFileId = "";
+
       if (mediaFile) {
-        const base64 = await fileToBase64(mediaFile);
-        finalUrl = `data:${mediaFile.type};base64,${base64}`;
+        // Upload to Google Drive instead of Base64 to Firestore
+        try {
+          const driveFile = await uploadToDrive(mediaFile);
+          driveFileId = driveFile.id;
+          finalUrl = getDriveFileUrl(driveFile.id);
+        } catch (driveErr) {
+          console.error("Drive upload failed", driveErr);
+          throw new Error("雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
+        }
       }
       
       const { week, day } = calculateWeekDay(new Date(recordDate), conceptionDate);
@@ -126,6 +145,7 @@ export default function RecordsView({
         date: new Date(recordDate).toISOString(),
         type: mediaFile?.type.startsWith("video") ? "video" : (mediaFile ? "image" : "text"),
         url: finalUrl,
+        driveFileId: driveFileId,
         note: note.trim(),
         weekCount: week,
         dayCount: day,
@@ -139,11 +159,7 @@ export default function RecordsView({
       setNote("");
       setRecordDate(new Date().toISOString().split('T')[0]);
     } catch (e: any) {
-      if (e.message?.includes("Document too large") || e.message?.includes("exceeds the maximum")) {
-        alert("上傳失敗：檔案轉換後的大小超過了資料庫單筆 1MB 的限制，請更換較小的檔案或壓縮後再試。");
-      } else {
-        alert(e.message || "上傳失敗，請稍後再試。");
-      }
+      alert(e.message || "上傳失敗，請稍後再試。");
       handleFirestoreError(e, OperationType.CREATE, 'records');
     } finally {
       setIsSaving(false);
@@ -169,11 +185,19 @@ export default function RecordsView({
     }
   };
 
-  const removeRecord = async (id: string) => {
+  const removeRecord = async (record: RecordEntry) => {
+    if (!window.confirm("確定要刪除此筆紀錄嗎？")) return;
     try {
-      await deleteDoc(doc(db, 'records', id));
+      if (record.driveFileId) {
+        try {
+          await deleteFromDrive(record.driveFileId);
+        } catch (e) {
+          console.error("Failed to delete from Drive, but proceeding with Firestore deletion", e);
+        }
+      }
+      await deleteDoc(doc(db, 'records', record.id));
     } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `records/${id}`);
+      handleFirestoreError(e, OperationType.DELETE, `records/${record.id}`);
     }
   };
 
@@ -396,7 +420,7 @@ export default function RecordsView({
                   </label>
                 </div>
                 <p className="text-[10px] text-slate-400 ml-1 italic">
-                  * 註：受限於資料庫規格，單筆紀錄（包含圖片/影片）之總大小不可超過 1MB。
+                  * 註：照片與影片將儲存於您的 Google Drive，不佔用資料庫空間。
                 </p>
 
                 {mediaFile && previewUrl && (
@@ -541,7 +565,7 @@ export default function RecordsView({
                       <Edit className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => removeRecord(record.id)}
+                      onClick={() => removeRecord(record)}
                       className="p-2 text-slate-300 hover:text-red-500 transition h-fit rounded-lg hover:bg-red-50"
                       title="刪除"
                     >
