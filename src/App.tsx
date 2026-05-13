@@ -27,7 +27,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<AppTab>('chat');
+  const [activeTab, setActiveTab] = useState<AppTab>('records');
 
   const [tools, setTools] = useState<string[]>(INITIAL_TOOLS);
   const [seasonings, setSeasonings] = useState<string[]>(INITIAL_SEASONINGS);
@@ -248,7 +248,7 @@ export default function App() {
             const isMain = isMainAccount(u);
             const initialRole = isMain ? 'papa' : 'guest';
             const initialNickname = isMain ? '傑' : (u.email?.split('@')[0] || '訪客');
-            const initialAvatar = initialRole === 'mama' ? MAMMA_AVATAR : (initialRole === 'papa' ? PAPA_AVATAR : GUEST_AVATAR);
+            const initialAvatar = isMain ? PAPA_AVATAR : GUEST_AVATAR;
 
             await setDoc(docRef, {
               userId: u.uid,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Camera,
   Image as ImageIcon,
@@ -89,8 +89,13 @@ export default function RecordsView({
   const [babyMessage, setBabyMessage] = useState("");
   const [showBabyBubble, setShowBabyBubble] = useState(false);
   const [lastMessageIndex, setLastMessageIndex] = useState(-1);
+  const bubbleTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleBabyClick = () => {
+    if (bubbleTimerRef.current) {
+      clearTimeout(bubbleTimerRef.current);
+    }
+
     let nextIndex;
     do {
       nextIndex = Math.floor(Math.random() * BABY_MESSAGES.length);
@@ -100,10 +105,11 @@ export default function RecordsView({
     setBabyMessage(BABY_MESSAGES[nextIndex]);
     setShowBabyBubble(true);
 
-    // Auto hide after 5 seconds
-    setTimeout(() => {
+    // Auto hide after 10 seconds
+    bubbleTimerRef.current = setTimeout(() => {
       setShowBabyBubble(false);
-    }, 5000);
+      bubbleTimerRef.current = null;
+    }, 10000);
   };
 
   useEffect(() => {
@@ -116,7 +122,8 @@ export default function RecordsView({
     if (!auth.currentUser) return;
     
     const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
-    const q = (isMainAccount || userProfile?.isGuest)
+    const isGuestUser = userProfile?.isGuest || userProfile?.role === 'guest';
+    const q = (isMainAccount || isGuestUser)
       ? query(collection(db, 'records'), orderBy('date', 'desc'))
       : query(collection(db, 'records'), where('userId', '==', auth.currentUser.uid), orderBy('date', 'desc'));
     
