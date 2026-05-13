@@ -15,12 +15,12 @@ export default function LoginView() {
   const [loading, setLoading] = useState(false);
 
   const avatars = [
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest1',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest2',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest3',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest4',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest5',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=guest6',
+    'https://api.dicebear.com/7.x/lorelei/svg?seed=guest1&backgroundColor=ffdfbf',
+    'https://api.dicebear.com/7.x/lorelei/svg?seed=guest2&backgroundColor=b6e3f4',
+    'https://api.dicebear.com/7.x/lorelei/svg?seed=guest3&backgroundColor=c0aede',
+    'https://api.dicebear.com/7.x/lorelei/svg?seed=guest4&backgroundColor=d1d4f9',
+    'https://api.dicebear.com/7.x/lorelei/svg?seed=guest5&backgroundColor=ffd5dc',
+    'https://api.dicebear.com/7.x/lorelei/svg?seed=guest6&backgroundColor=ffdfbf',
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {

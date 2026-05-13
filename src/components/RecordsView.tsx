@@ -647,13 +647,26 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
     if (userProfile?.role) setCurrentRole(userProfile.role);
   }, [userProfile?.role]);
 
+  const getActiveProfile = () => {
+    const isMainAccount = auth.currentUser?.email === 'jason2134@gmail.com' || auth.currentUser?.email === 'user@gmail.com';
+    if (isMainAccount) {
+      if (currentRole === 'mama') return { nickname: '茶', avatarUrl: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Mama&backgroundColor=ffdfbf' };
+      if (currentRole === 'papa') return { nickname: '傑', avatarUrl: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Papa&backgroundColor=b6e3f4' };
+    }
+    return {
+      nickname: userProfile?.nickname || auth.currentUser?.email?.split('@')[0] || '訪客',
+      avatarUrl: userProfile?.avatarUrl || ''
+    };
+  };
+
   const handleAddComment = async () => {
     if (!newComment.trim() || !auth.currentUser) return;
+    const profile = getActiveProfile();
     try {
       await addDoc(collection(db, 'records', recordId, 'comments'), {
         userId: auth.currentUser.uid,
-        nickname: userProfile?.nickname || auth.currentUser.email?.split('@')[0] || '訪客',
-        avatarUrl: userProfile?.avatarUrl || '',
+        nickname: profile.nickname,
+        avatarUrl: profile.avatarUrl,
         role: currentRole,
         text: newComment.trim(),
         createdAt: serverTimestamp()
@@ -664,8 +677,10 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
     }
   };
 
+  const isAdmin = auth.currentUser?.email === 'jason2134@gmail.com' || auth.currentUser?.email === 'user@gmail.com';
+
   const deleteComment = async (commentId: string) => {
-    if (!window.confirm("確定要刪除此留言嗎？")) return;
+    if (!window.confirm("確定要刪除這則留言嗎？")) return;
     try {
       await deleteDoc(doc(db, 'records', recordId, 'comments', commentId));
     } catch (e) {
@@ -707,10 +722,10 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
                     <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-bold uppercase overflow-hidden text-ellipsis whitespace-nowrap max-w-[60px]">
                       {comment.role === 'mama' ? '媽媽' : comment.role === 'papa' ? '爸爸' : '訪客'}
                     </span>
-                    {(isMe || auth.currentUser?.email === 'jason2134@gmail.com') && (
+                    {(isMe || isAdmin) && (
                       <button 
                         onClick={() => deleteComment(comment.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition"
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition ml-auto"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>

@@ -232,43 +232,57 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribeSnapshot: (() => void) | null = null;
+    const isMainAccount = (u: any) => u?.email === 'jason2134@gmail.com' || u?.email === 'user@gmail.com';
+    const MAMMA_AVATAR = 'https://api.dicebear.com/7.x/lorelei/svg?seed=Mama&backgroundColor=ffdfbf';
+    const PAPA_AVATAR = 'https://api.dicebear.com/7.x/lorelei/svg?seed=Papa&backgroundColor=b6e3f4';
+    const GUEST_AVATAR = 'https://api.dicebear.com/7.x/lorelei/svg?seed=Guest&backgroundColor=ffdfbf';
 
     const authUnsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setUser(u);
+        const docRef = doc(db, 'users', u.uid);
+        
         try {
-          const docRef = doc(db, 'users', u.uid);
           const docSnap = await getDoc(docRef);
-          
           if (!docSnap.exists()) {
+            const isMain = isMainAccount(u);
+            const initialRole = isMain ? 'papa' : 'guest';
+            const initialNickname = isMain ? '傑' : (u.email?.split('@')[0] || '訪客');
+            const initialAvatar = initialRole === 'mama' ? MAMMA_AVATAR : (initialRole === 'papa' ? PAPA_AVATAR : GUEST_AVATAR);
+
             await setDoc(docRef, {
               userId: u.uid,
+              nickname: initialNickname,
+              role: initialRole,
+              avatarUrl: initialAvatar,
               tools: INITIAL_TOOLS,
               seasonings: INITIAL_SEASONINGS,
               ingredients: INITIAL_INGREDIENTS,
               conceptionDate: CONCEPTION_DATE.toISOString(),
+              oauthClientId: '',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             });
           }
 
-          // Real-time listener for user document
           unsubscribeSnapshot = onSnapshot(docRef, (snapshot) => {
             if (snapshot.exists()) {
               const data = snapshot.data();
-              setUserProfile(data);
               
-              // Automatically set default Q-version avatars for main accounts if empty
-              if (!data.avatarUrl) {
-                let defaultAvatar = '';
-                if (data.role === 'mama') defaultAvatar = 'https://api.dicebear.com/7.x/adventurer/svg?seed=MamaAvatar';
-                else if (data.role === 'papa') defaultAvatar = 'https://api.dicebear.com/7.x/adventurer/svg?seed=PapaAvatar';
-                
-                if (defaultAvatar) {
-                  updateDoc(docRef, { avatarUrl: defaultAvatar });
+              if (data.isGuest && activeTab === 'chat') {
+                setActiveTab('records');
+              }
+
+              const isMain = isMainAccount(u);
+              if (isMain) {
+                if (data.role === 'mama' && data.nickname !== '茶') {
+                  updateDoc(docRef, { nickname: '茶', avatarUrl: MAMMA_AVATAR });
+                } else if (data.role === 'papa' && data.nickname !== '傑') {
+                  updateDoc(docRef, { nickname: '傑', avatarUrl: PAPA_AVATAR });
                 }
               }
 
+              setUserProfile(data);
               setTools(data.tools || []);
               setSeasonings(data.seasonings || []);
               setIngredients(data.ingredients || []);
@@ -299,7 +313,7 @@ export default function App() {
       authUnsub();
       if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     // Initialize speech recognition

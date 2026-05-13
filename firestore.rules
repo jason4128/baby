@@ -16,8 +16,10 @@ service cloud.firestore {
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
     function isGuest() { 
-      // anonymous users or users with isGuest flag in their profile
-      return isSignedIn() && (request.auth.token.firebase.sign_in_provider == 'anonymous');
+      return isSignedIn() && (
+        (request.auth.token.firebase.sign_in_provider == 'anonymous') ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isGuest == true
+      );
     }
     function isAdmin() { 
       return isSignedIn() && (
