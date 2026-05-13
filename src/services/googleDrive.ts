@@ -49,13 +49,52 @@ export const ensureAuth = async (): Promise<string> => {
   });
 };
 
-export const uploadToDrive = async (file: File): Promise<DriveFile> => {
+export const getOrCreateFolder = async (folderName: string): Promise<string> => {
   const token = await ensureAuth();
 
-  const metadata = {
+  // Search for the folder
+  const query = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const searchResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!searchResponse.ok) throw new Error('Search folder failed');
+  const searchData = await searchResponse.json();
+
+  if (searchData.files && searchData.files.length > 0) {
+    return searchData.files[0].id;
+  }
+
+  // Create folder if not found
+  const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+    }),
+  });
+
+  if (!createResponse.ok) throw new Error('Create folder failed');
+  const createData = await createResponse.json();
+  
+  return createData.id;
+};
+
+export const uploadToDrive = async (file: File, folderId?: string): Promise<DriveFile> => {
+  const token = await ensureAuth();
+
+  const metadata: any = {
     name: file.name,
     mimeType: file.type,
   };
+
+  if (folderId) {
+    metadata.parents = [folderId];
+  }
 
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));

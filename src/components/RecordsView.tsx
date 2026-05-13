@@ -30,7 +30,8 @@ import {
   uploadToDrive, 
   deleteFromDrive, 
   getDriveFileUrl, 
-  makeFilePublic 
+  makeFilePublic,
+  getOrCreateFolder
 } from "../services/googleDrive";
 
 export type RecordEntry = {
@@ -135,7 +136,8 @@ export default function RecordsView({
         // Upload to Google Drive instead of Base64 to Firestore
         try {
           const isVideo = mediaFile.type.startsWith("video");
-          const driveFile = await uploadToDrive(mediaFile);
+          const folderId = await getOrCreateFolder("戰友奶爸指揮中心");
+          const driveFile = await uploadToDrive(mediaFile, folderId);
           driveFileId = driveFile.id;
           finalUrl = getDriveFileUrl(driveFile.id, isVideo);
           
