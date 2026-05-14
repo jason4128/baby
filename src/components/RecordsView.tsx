@@ -43,6 +43,7 @@ import {
   makeFilePublic,
   getOrCreateFolder
 } from "../services/googleDrive";
+import { SlotMachineModal } from "./SlotMachineModal";
 
 export type RecordEntry = {
   id: string;
@@ -92,6 +93,7 @@ export default function RecordsView({
   const [babyResponse, setBabyResponse] = useState<string | null>(null);
   const [lastMessageIndex, setLastMessageIndex] = useState(-1);
   const bubbleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isSlotMachineOpen, setIsSlotMachineOpen] = useState(false);
 
   const handleBabyClick = (e?: React.MouseEvent) => {
     if (e) {
@@ -132,6 +134,21 @@ export default function RecordsView({
     if (bubbleTimerRef.current) {
         clearTimeout(bubbleTimerRef.current);
     }
+    bubbleTimerRef.current = setTimeout(() => {
+      setShowBabyBubble(false);
+      bubbleTimerRef.current = null;
+    }, 7000);
+  };
+
+  const handleSlotMachineWin = (food: any) => {
+    if (bubbleTimerRef.current) {
+      clearTimeout(bubbleTimerRef.current);
+    }
+    setBabyMessage({ text: food.message });
+    setBabyResponse(null);
+    setShowOptions(false);
+    setShowBabyBubble(true);
+
     bubbleTimerRef.current = setTimeout(() => {
       setShowBabyBubble(false);
       bubbleTimerRef.current = null;
@@ -416,7 +433,10 @@ export default function RecordsView({
 
             {/* Floating Icons */}
             <div className="absolute right-0 bottom-12 flex flex-col gap-4 z-20">
-              <div className="w-12 h-12 bg-[#FFF4E6] rounded-full shadow-sm flex items-center justify-center text-red-400 text-xl border border-amber-50 relative group cursor-pointer hover:scale-105 transition-transform">
+              <div 
+                onClick={() => setIsSlotMachineOpen(true)}
+                className="w-12 h-12 bg-[#FFF4E6] rounded-full shadow-sm flex items-center justify-center text-red-400 text-xl border border-amber-50 relative group cursor-pointer hover:scale-105 transition-transform"
+              >
                 <span className="absolute -top-6 text-[10px] text-gray-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                   \ 推薦 /
                 </span>
@@ -427,6 +447,12 @@ export default function RecordsView({
               </div>
             </div>
           </div>
+
+          <SlotMachineModal 
+            isOpen={isSlotMachineOpen} 
+            onClose={() => setIsSlotMachineOpen(false)} 
+            onWin={handleSlotMachineWin} 
+          />
 
           <div className="mt-8 flex justify-between items-end w-full border-b-2 border-[#D4C4B7] pb-2 px-2">
             <div className="text-[#5C4D43] font-bold text-xs">
