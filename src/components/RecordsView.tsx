@@ -318,7 +318,8 @@ export default function RecordsView({
     else size = "newborn chubby baby ready to be born";
 
     const prompt = `cute very simple flat vector illustration of ${size}, wearing a light blue whale shark costume with white polka dots, minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=999${week}`;
+    const seed = week === 7 ? `888123` : `999${week}`;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=${seed}`;
   };
 
   const handleDateSubmit = (e: React.FormEvent) => {
