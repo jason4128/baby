@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse, SquareParking, Store, ChevronDown, ChevronUp, ImagePlus } from 'lucide-react';
+import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse, SquareParking, Store, ChevronDown, ChevronUp, ImagePlus, ClipboardList } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { cn } from '../lib/utils';
 import { fileToBase64, withKeyFallback } from '../services/gemini';
 import Markdown from 'react-markdown';
+import { VisitationChecklistModal } from './VisitationChecklistModal';
 
 interface Center {
   id: string;
@@ -19,6 +20,7 @@ interface Center {
   neighborhood: string;
   commuteTime: string;
   summary: string;
+  checklist?: Record<string, boolean>;
   createdAt: any;
 }
 
@@ -45,6 +47,7 @@ export default function PostpartumView() {
   const [expandedCenterIds, setExpandedCenterIds] = useState<Set<string>>(new Set());
   const [showComparison, setShowComparison] = useState(false);
   const [supplementModalCenter, setSupplementModalCenter] = useState<Center | null>(null);
+  const [checklistModalCenter, setChecklistModalCenter] = useState<Center | null>(null);
   const [supplementStagedImages, setSupplementStagedImages] = useState<{file: File, url: string}[]>([]);
 
   useEffect(() => {
@@ -737,6 +740,16 @@ ${JSON.stringify({
                       補充資訊
                     </button>
                     <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setChecklistModalCenter(center);
+                      }}
+                      className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors flex items-center gap-1.5"
+                    >
+                      <ClipboardList className="w-3.5 h-3.5" />
+                      參訪勾選
+                    </button>
+                    <button 
                       onClick={(e) => handleDelete(center.id, e)}
                       className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors"
                       title="刪除"
@@ -890,6 +903,14 @@ ${JSON.stringify({
           </div>
         </div>
       )}
+
+      <VisitationChecklistModal 
+        isOpen={!!checklistModalCenter}
+        onClose={() => setChecklistModalCenter(null)}
+        centerId={checklistModalCenter?.id || ''}
+        centerName={checklistModalCenter?.name || ''}
+        initialChecklist={checklistModalCenter?.checklist}
+      />
 
       {errorModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
