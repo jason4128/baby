@@ -194,7 +194,7 @@ export default function RecordsView({
           if (!existingData.url || existingData.url === "") {
             setIsGeneratingDaily(true);
             try {
-              const imagePrompt = `A cute 3D cartoon baby (Pixar style) wearing a whale shark (blue with white dots) onesie, inside a magical, warm, and glowing womb environment. The baby is swimming happily. It's related to this thought: "${existingData.note}". Soft lighting, adorable, vibrant colors, expressive eyes.`;
+              const imagePrompt = `Cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities related to this thought: "${existingData.note}". Minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
               
               const responseImageUrl = await withKeyFallback(async (ai) => {
                 const response = await ai.models.generateContent({
@@ -305,7 +305,7 @@ export default function RecordsView({
       let imageUrl = "";
       if (responseText) {
         try {
-          const imagePrompt = `A cute 3D cartoon baby (Pixar style) wearing a whale shark (blue with white dots) onesie, inside a magical, warm, and glowing womb environment. The baby is doing activities based on this thought: "${responseText}". Soft lighting, adorable, vibrant colors, expressive eyes.`;
+          const imagePrompt = `Cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities related to this thought: "${responseText}". Minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
           imageUrl = await withKeyFallback(async (ai) => {
             const imgRes = await ai.models.generateContent({
               model: 'gemini-3.1-flash-image-preview',
@@ -338,6 +338,40 @@ export default function RecordsView({
       }
     } catch (e) {
       console.error("Failed to generate daily baby note", e);
+    }
+  };
+
+  const handleRegenerateBabyImage = async (record: RecordEntry) => {
+    setIsGeneratingDaily(true);
+    try {
+      const imagePrompt = `Cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities related to this thought: "${record.note}". Minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
+      
+      const responseImageUrl = await withKeyFallback(async (ai) => {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-image-preview',
+          contents: { parts: [{ text: imagePrompt }] },
+          config: {
+            // @ts-ignore
+            imageConfig: { aspectRatio: "1:1", imageSize: "512px" }
+          }
+        });
+
+        const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+        if (part && part.inlineData) {
+          return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+        }
+        return null;
+      });
+
+      if (responseImageUrl) {
+        await updateDoc(doc(db, 'records', record.id), {
+          url: responseImageUrl
+        });
+      }
+    } catch (err) {
+       console.error("Failed to regenerate image for existing baby note", err);
+    } finally {
+      setIsGeneratingDaily(false);
     }
   };
 
@@ -800,17 +834,28 @@ export default function RecordsView({
               ) : (
                 <>
                   <div className={cn(
-                    "flex items-center gap-2 text-sm font-semibold mb-2 inline-flex px-2 py-1 rounded-md",
-                    record.type === 'baby_ai' ? "text-amber-700 bg-amber-100" : "text-indigo-600 bg-indigo-50"
+                    "flex items-center gap-2 text-sm font-semibold mb-2 px-2 py-1 rounded-md w-full",
+                    record.type === 'baby_ai' ? "text-amber-700 bg-amber-100/50" : "text-indigo-600 bg-indigo-50 inline-flex w-max"
                   )}>
                     {record.type === 'baby_ai' ? <Sparkles className="w-4 h-4" /> : <Calendar className="w-4 h-4" />}
                     {record.type === 'baby_ai' ? "寶寶每日日記" : `第 ${record.weekCount} 週 ${record.dayCount} 天`}
                     <span className={cn(
-                      "font-normal ml-2",
+                      "font-normal ml-2 flex-1",
                       record.type === 'baby_ai' ? "text-amber-600/70" : "text-slate-400"
                     )}>
                       {new Date(record.date).toLocaleDateString()}
                     </span>
+                    {record.type === 'baby_ai' && (
+                      <button
+                        onClick={() => handleRegenerateBabyImage(record)}
+                        disabled={isGeneratingDaily}
+                        className="ml-auto text-xs flex items-center gap-1 bg-white/50 hover:bg-white text-amber-600 border border-amber-200 px-2 py-0.5 rounded shadow-sm disabled:opacity-50 transition-colors cursor-pointer"
+                        title="重新生成這張照片"
+                      >
+                        {isGeneratingDaily ? <Loader2 className="w-3 h-3 animate-spin"/> : <Cloud className="w-3 h-3" />}
+                        {isGeneratingDaily ? '生成中...' : '重新生成照片'}
+                      </button>
+                    )}
                   </div>
 
                   {record.note && (
