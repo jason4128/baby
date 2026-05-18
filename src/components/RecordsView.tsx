@@ -187,6 +187,48 @@ export default function RecordsView({
         if (snap.empty) {
           setIsGeneratingDaily(true);
           await generateDailyBabyNote();
+        } else {
+          // If we have today's message but no image, let's retroactively generate it
+          const existingDoc = snap.docs[0];
+          const existingData = existingDoc.data();
+          if (!existingData.url || existingData.url === "") {
+            setIsGeneratingDaily(true);
+            try {
+              const imagePrompt = `A cute 3D cartoon baby (Pixar style) wearing a whale shark (blue with white dots) onesie, inside a magical, warm, and glowing womb environment. The baby is swimming happily. It's related to this thought: "${existingData.note}". Soft lighting, adorable, vibrant colors, expressive eyes.`;
+              
+              const responseImageUrl = await withKeyFallback(async (ai) => {
+                const response = await ai.models.generateContent({
+                  model: 'gemini-3.1-flash-image-preview',
+                  contents: {
+                    parts: [{ text: imagePrompt }],
+                  },
+                  config: {
+                    // @ts-ignore
+                    imageConfig: {
+                      aspectRatio: "1:1",
+                      imageSize: "512px" /* to keep payload small for firestore */
+                    }
+                  }
+                });
+        
+                const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                if (part && part.inlineData) {
+                  return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+                }
+                return null;
+              });
+
+              if (responseImageUrl) {
+                await updateDoc(doc(db, 'records', existingDoc.id), {
+                  url: responseImageUrl
+                });
+              }
+            } catch (err) {
+               console.error("Failed to generate image for existing baby note", err);
+            } finally {
+              setIsGeneratingDaily(false);
+            }
+          }
         }
       } catch (err) {
         console.error("Failed to check daily message", err);
@@ -260,12 +302,34 @@ export default function RecordsView({
         return response.text;
       });
 
+      let imageUrl = "";
       if (responseText) {
+        try {
+          const imagePrompt = `A cute 3D cartoon baby (Pixar style) wearing a whale shark (blue with white dots) onesie, inside a magical, warm, and glowing womb environment. The baby is doing activities based on this thought: "${responseText}". Soft lighting, adorable, vibrant colors, expressive eyes.`;
+          imageUrl = await withKeyFallback(async (ai) => {
+            const imgRes = await ai.models.generateContent({
+              model: 'gemini-3.1-flash-image-preview',
+              contents: { parts: [{ text: imagePrompt }] },
+              config: {
+                // @ts-ignore
+                imageConfig: { aspectRatio: "1:1", imageSize: "512px" }
+              }
+            });
+            const part = imgRes.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+            if (part && part.inlineData) {
+              return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+            }
+            return "";
+          });
+        } catch (imgErr) {
+          console.error("Failed to generate image", imgErr);
+        }
+        
         await addDoc(collection(db, 'records'), {
           userId: auth.currentUser.uid,
           date: new Date().toISOString(),
           type: "baby_ai",
-          url: "",
+          url: imageUrl,
           note: responseText.trim(),
           weekCount: pregWeek,
           dayCount: pregDay,
