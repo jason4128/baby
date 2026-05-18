@@ -189,7 +189,6 @@ export default function RecordsView({
         if (snapToday.empty) {
           setIsGeneratingDaily(true);
           await generateDailyBabyNote();
-          return;
         }
 
         // 2. Retroactively fix missing images for ANY baby_ai record of this user
@@ -278,7 +277,7 @@ export default function RecordsView({
 
       const responseText = await withKeyFallback(async (ai) => {
         const response = await ai.models.generateContent({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-3-flash-preview',
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           config: { temperature: 1.0 }
         });
