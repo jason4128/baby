@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse, SquareParking, Store, ChevronDown, ChevronUp, ImagePlus, ClipboardList } from 'lucide-react';
+import { Home, Building2, UploadCloud, Loader2, Plus, Sparkles, Building, MapPin, DollarSign, Stethoscope, ShieldCheck, Utensils, HeartHandshake, Car, Trash2, HeartPulse, SquareParking, Store, ChevronDown, ChevronUp, ImagePlus, ClipboardList, Calculator } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { cn } from '../lib/utils';
 import { fileToBase64, withKeyFallback } from '../services/gemini';
 import Markdown from 'react-markdown';
 import { VisitationChecklistModal } from './VisitationChecklistModal';
+import { CostCalculatorModal, CostEstimate } from './CostCalculatorModal';
 
 interface Center {
   id: string;
@@ -21,6 +22,7 @@ interface Center {
   commuteTime: string;
   summary: string;
   checklist?: Record<string, boolean>;
+  costEstimate?: CostEstimate;
   createdAt: any;
 }
 
@@ -30,12 +32,31 @@ interface Evaluation {
   result: string;
 }
 
+const calculateTotalCost = (estimate?: CostEstimate) => {
+  if (!estimate) return null;
+  let totalRoom = 0;
+  let totalMeal = estimate.mealRate * estimate.totalDays;
+  let totalBaby = estimate.babyRate * estimate.totalDays;
+
+  for (let day = 1; day <= estimate.totalDays; day++) {
+    let discountMult = 1;
+    const tier = estimate.discounts.find(d => day >= d.startDay && day <= d.endDay);
+    if (tier && tier.discountValue > 0 && tier.discountValue <= 10) {
+      discountMult = tier.discountValue / 10;
+    }
+    totalRoom += estimate.roomRate * discountMult;
+  }
+  return Math.round(totalRoom + totalMeal + totalBaby);
+};
+
 export default function PostpartumView() {
   const [centers, setCenters] = useState<Center[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [homeLocation, setHomeLocation] = useState('高雄市小港區');
   const [work1Location, setWork1Location] = useState('屏東榮總');
   const [work2Location, setWork2Location] = useState('龍泉分院');
+  const [work3Location, setWork3Location] = useState('國立高雄師範大學和平校區(高雄市苓雅區同慶里和平一路116號)');
+  const [work4Location, setWork4Location] = useState('國立高雄師範大學燕巢校區(高雄市燕巢區深水里深中路62號)');
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUploadingEvaluation, setIsUploadingEvaluation] = useState(false);
@@ -48,6 +69,7 @@ export default function PostpartumView() {
   const [showComparison, setShowComparison] = useState(false);
   const [supplementModalCenter, setSupplementModalCenter] = useState<Center | null>(null);
   const [checklistModalCenter, setChecklistModalCenter] = useState<Center | null>(null);
+  const [calculatorModalCenter, setCalculatorModalCenter] = useState<Center | null>(null);
   const [supplementStagedImages, setSupplementStagedImages] = useState<{file: File, url: string}[]>([]);
 
   useEffect(() => {
@@ -55,9 +77,13 @@ export default function PostpartumView() {
     const savedHome = localStorage.getItem('postpartum_home');
     const savedWork1 = localStorage.getItem('postpartum_work1');
     const savedWork2 = localStorage.getItem('postpartum_work2');
+    const savedWork3 = localStorage.getItem('postpartum_work3');
+    const savedWork4 = localStorage.getItem('postpartum_work4');
     if (savedHome) setHomeLocation(savedHome);
     if (savedWork1) setWork1Location(savedWork1);
     if (savedWork2) setWork2Location(savedWork2);
+    if (savedWork3) setWork3Location(savedWork3);
+    if (savedWork4) setWork4Location(savedWork4);
 
     if (!auth.currentUser) return;
     const q = query(
@@ -91,6 +117,8 @@ export default function PostpartumView() {
     localStorage.setItem('postpartum_home', homeLocation);
     localStorage.setItem('postpartum_work1', work1Location);
     localStorage.setItem('postpartum_work2', work2Location);
+    localStorage.setItem('postpartum_work3', work3Location);
+    localStorage.setItem('postpartum_work4', work4Location);
   };
 
   const handleStageFiles = (files: FileList | File[]) => {
@@ -216,6 +244,8 @@ export default function PostpartumView() {
 我的住家地點：${homeLocation}
 工作地點1：${work1Location}
 工作地點2：${work2Location}
+工作地點3：${work3Location}
+工作地點4：${work4Location}
 
 請幫我整理這些圖片中關於這間月子中心的資料（若圖片混雜多間，請選擇最主要的一間，或合併重點），使用 JSON 格式回傳，欄位需包含下列 key：
 {
@@ -228,7 +258,7 @@ export default function PostpartumView() {
   "extraServices": "照護細節與其他額外服務評估",
   "parking": "停車場評估（有沒有專屬車位、周邊好不好停等）",
   "neighborhood": "周邊生活機能評估（附近有沒便利商店、餐廳、大醫院等）",
-  "commuteTime": "預估從我的住家與兩個工作地點到此月子中心的交通時間評估（依據你網際網路的知識或常理推斷）",
+  "commuteTime": "預估從我的住家與四個工作地點到此月子中心的開車交通時間（只需列出開車時間，不需要其他交通方式跟詳細分析內容）",
   "summary": "整體綜合評估與建議（一小段話）"
 }
 請只回傳 JSON 格式，不要加 markdown 標記。若圖中無相關資訊，請依你的常識填寫「未提供」或合理推測。`;
@@ -409,6 +439,39 @@ ${JSON.stringify({
     }
   };
 
+  const handleUpdateCommuteTime = async (center: Center, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setIsAnalyzing(true);
+    try {
+      const prompt = `請幫我估算從以下五個地點，到「${center.name}」（地址或相對位置：${center.location}）的開車交通時間：
+我的住家地點：${homeLocation}
+工作地點1：${work1Location}
+工作地點2：${work2Location}
+工作地點3：${work3Location}
+工作地點4：${work4Location}
+
+請直接回傳一段簡潔、易讀的文字描述（支援 markdown），不需任何 JSON。只需估算「開車時間」，不需要其他交通方式與詳細分析內容。`;
+
+      const responseText = await withKeyFallback(async (ai) => {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+        });
+        return response.text;
+      });
+
+      if (responseText) {
+        await updateDoc(doc(db, 'postpartum_centers', center.id), {
+          commuteTime: responseText
+        });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `postpartum_centers/${center.id}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleDelete = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     try {
@@ -579,6 +642,30 @@ ${JSON.stringify({
                 className="w-full bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 text-rose-900"
               />
             </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-rose-800/70 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" /> 工作地點 3
+              </label>
+              <input
+                type="text"
+                value={work3Location}
+                onChange={e => setWork3Location(e.target.value)}
+                onBlur={handleSaveLocations}
+                className="w-full bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 text-rose-900"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-rose-800/70 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" /> 工作地點 4
+              </label>
+              <input
+                type="text"
+                value={work4Location}
+                onChange={e => setWork4Location(e.target.value)}
+                onBlur={handleSaveLocations}
+                className="w-full bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 text-rose-900"
+              />
+            </div>
           </div>
         </div>
 
@@ -639,6 +726,12 @@ ${JSON.stringify({
                         </div>
                       )}
                       <div className="text-sm text-rose-800/80 mt-1">{center.price}</div>
+                      {center.costEstimate && (
+                        <div className="mt-2 text-sm font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1.5 w-max">
+                          <Calculator className="w-4 h-4"/>
+                          試算總價: ${calculateTotalCost(center.costEstimate)?.toLocaleString()}
+                        </div>
+                      )}
                     </div>
                     
                     <div className="space-y-4">
@@ -647,8 +740,18 @@ ${JSON.stringify({
                         <div className="text-sm bg-slate-50 p-3 rounded-xl border border-slate-100">{center.location}</div>
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-rose-500 mb-1">交通評估</div>
-                        <div className="text-sm bg-amber-50 p-3 rounded-xl border border-amber-100 text-amber-900">{center.commuteTime}</div>
+                        <div className="text-xs font-bold text-rose-500 mb-1 flex items-center justify-between">
+                          <span>交通評估</span>
+                          <button
+                            onClick={(e) => handleUpdateCommuteTime(center, e)}
+                            disabled={isAnalyzing}
+                            className="px-2 py-0.5 bg-white text-amber-600 rounded-md border border-amber-200 hover:bg-amber-100 transition-colors flex items-center gap-1 shadow-sm disabled:opacity-50 cursor-pointer"
+                          >
+                            {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                            重新分析
+                          </button>
+                        </div>
+                        <div className="text-sm bg-amber-50 p-3 rounded-xl border border-amber-100 text-amber-900 leading-relaxed"><Markdown>{center.commuteTime}</Markdown></div>
                       </div>
                       <div>
                         <div className="text-xs font-bold text-rose-500 mb-1">醫療照護</div>
@@ -720,6 +823,11 @@ ${JSON.stringify({
                       <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-rose-800/70">
                         <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> {center.location}</span>
                         <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5"/> {center.price}</span>
+                        {center.costEstimate && (
+                          <span className="flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-200">
+                            <Calculator className="w-3.5 h-3.5"/> 試算: ${calculateTotalCost(center.costEstimate)?.toLocaleString()}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -750,6 +858,16 @@ ${JSON.stringify({
                       參訪勾選
                     </button>
                     <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCalculatorModalCenter(center);
+                      }}
+                      className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors flex items-center gap-1.5"
+                    >
+                      <DollarSign className="w-3.5 h-3.5" />
+                      費用試算
+                    </button>
+                    <button 
                       onClick={(e) => handleDelete(center.id, e)}
                       className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors"
                       title="刪除"
@@ -766,8 +884,18 @@ ${JSON.stringify({
                   <div className="p-6">
                   <div className="bg-amber-50/50 rounded-2xl p-4 border border-amber-100/50 mb-5 text-sm flex gap-3">
                     <Car className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-bold text-amber-900 mb-1">AI 交通評估</div>
+                    <div className="flex-1">
+                      <div className="font-bold text-amber-900 mb-1 flex items-center justify-between">
+                        <span>AI 交通評估</span>
+                        <button
+                          onClick={(e) => handleUpdateCommuteTime(center, e)}
+                          disabled={isAnalyzing}
+                          className="px-3 py-1 bg-white text-amber-600 rounded-lg border border-amber-200 hover:bg-amber-100 transition-colors text-xs flex items-center gap-1 shadow-sm disabled:opacity-50 cursor-pointer"
+                        >
+                          {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          重新分析交通
+                        </button>
+                      </div>
                       <div className="text-amber-800 leading-relaxed"><Markdown>{center.commuteTime}</Markdown></div>
                     </div>
                   </div>
@@ -910,6 +1038,14 @@ ${JSON.stringify({
         centerId={checklistModalCenter?.id || ''}
         centerName={checklistModalCenter?.name || ''}
         initialChecklist={checklistModalCenter?.checklist}
+      />
+
+      <CostCalculatorModal
+        isOpen={!!calculatorModalCenter}
+        onClose={() => setCalculatorModalCenter(null)}
+        centerId={calculatorModalCenter?.id || ''}
+        centerName={calculatorModalCenter?.name || ''}
+        initialData={calculatorModalCenter?.costEstimate}
       />
 
       {errorModal && (

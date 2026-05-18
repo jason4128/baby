@@ -11,11 +11,14 @@ import {
   Save,
   Loader2,
   Heart,
+  Cloud,
+  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from "../lib/utils";
 import { BABY_MESSAGES } from '../constants/babyMessages';
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
+import { withKeyFallback } from "../services/gemini";
 import { 
   collection, 
   query, 
@@ -27,7 +30,8 @@ import {
   serverTimestamp, 
   orderBy,
   updateDoc,
-  getDocs
+  getDocs,
+  limit
 } from 'firebase/firestore';
 import { 
   MessageSquare,
@@ -48,7 +52,7 @@ import { SlotMachineModal } from "./SlotMachineModal";
 export type RecordEntry = {
   id: string;
   date: string;
-  type: "image" | "video" | "text";
+  type: "image" | "video" | "text" | "baby_ai";
   url: string;
   driveFileId?: string;
   note: string;
@@ -94,6 +98,7 @@ export default function RecordsView({
   const [lastMessageIndex, setLastMessageIndex] = useState(-1);
   const bubbleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isSlotMachineOpen, setIsSlotMachineOpen] = useState(false);
+  const [isGeneratingDaily, setIsGeneratingDaily] = useState(false);
 
   const handleBabyClick = (e?: React.MouseEvent) => {
     if (e) {
@@ -164,6 +169,34 @@ export default function RecordsView({
   useEffect(() => {
     if (!auth.currentUser) return;
     
+    // Check if daily baby message needs to be generated
+    const checkDailyMessage = async () => {
+      if (!auth.currentUser || isGeneratingDaily) return;
+      
+      const todayStr = new Date().toISOString().split('T')[0];
+      const q = query(
+        collection(db, 'records'), 
+        where('userId', '==', auth.currentUser.uid),
+        where('type', '==', 'baby_ai'),
+        where('date', '>=', todayStr),
+        limit(1)
+      );
+      
+      try {
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          setIsGeneratingDaily(true);
+          await generateDailyBabyNote();
+        }
+      } catch (err) {
+        console.error("Failed to check daily message", err);
+      } finally {
+        setIsGeneratingDaily(false);
+      }
+    };
+
+    checkDailyMessage();
+
     const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
     const isGuestUser = userProfile?.isGuest || userProfile?.role === 'guest';
     const q = (isMainAccount || isGuestUser)
@@ -197,6 +230,50 @@ export default function RecordsView({
       setMediaFile(file);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const generateDailyBabyNote = async () => {
+    if (!auth.currentUser) return;
+
+    try {
+      const prompt = `你是一個在媽媽肚子裡的寶寶，現在是第 ${pregWeek} 週第 ${pregDay} 天。
+你的個性：
+1. 超級愛澱粉（麵包、吐司、米飯、地瓜、麻糬等）。
+2. 把自己想像成一隻「點點鯊」（鯨鯊），肚子圓圓軟軟。
+3. 語氣可愛、調皮，有時候會跟爸爸媽媽撒嬌，有時候會吐槽爸爸。
+
+請幫我寫一段「寶寶每日心情紀錄」，約 50-100 字。
+內容可以包含：
+- 我在肚子裡做了什麼（游泳、翻身、打嗝、睡覺）。
+- 我對媽媽今天（或最近）吃的東西的評價（如果是澱粉就大讚，如果是苦的菜或腥的魚就撒嬌要澱粉壓驚）。
+- 對爸爸的叮嚀（要幫媽媽按摩、要買好吃的、要跟小窩說話）。
+
+請只回傳一段純文字內容，不要有任何標題或 Markdown 標記。`;
+
+      const responseText = await withKeyFallback(async (ai) => {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          config: { temperature: 1.0 }
+        });
+        return response.text;
+      });
+
+      if (responseText) {
+        await addDoc(collection(db, 'records'), {
+          userId: auth.currentUser.uid,
+          date: new Date().toISOString(),
+          type: "baby_ai",
+          url: "",
+          note: responseText.trim(),
+          weekCount: pregWeek,
+          dayCount: pregDay,
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (e) {
+      console.error("Failed to generate daily baby note", e);
     }
   };
 
@@ -618,7 +695,12 @@ export default function RecordsView({
               records.map((record) => (
         <div key={record.id} className="space-y-2">
           <div
-            className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex gap-4"
+            className={cn(
+              "p-5 rounded-2xl shadow-sm border flex gap-4 transition-all duration-300",
+              record.type === 'baby_ai' 
+                ? "bg-gradient-to-br from-amber-50 to-white border-amber-200 ring-1 ring-amber-100" 
+                : "bg-white border-slate-100"
+            )}
           >
             <div className="flex-1">
               {editingRecordId === record.id ? (
@@ -653,17 +735,26 @@ export default function RecordsView({
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center gap-2 text-sm text-indigo-600 font-semibold mb-2 bg-indigo-50 inline-flex px-2 py-1 rounded-md">
-                    <Calendar className="w-4 h-4" />第 {record.weekCount} 週{" "}
-                    {record.dayCount} 天
-                    <span className="text-slate-400 font-normal ml-2">
+                  <div className={cn(
+                    "flex items-center gap-2 text-sm font-semibold mb-2 inline-flex px-2 py-1 rounded-md",
+                    record.type === 'baby_ai' ? "text-amber-700 bg-amber-100" : "text-indigo-600 bg-indigo-50"
+                  )}>
+                    {record.type === 'baby_ai' ? <Sparkles className="w-4 h-4" /> : <Calendar className="w-4 h-4" />}
+                    {record.type === 'baby_ai' ? "寶寶每日日記" : `第 ${record.weekCount} 週 ${record.dayCount} 天`}
+                    <span className={cn(
+                      "font-normal ml-2",
+                      record.type === 'baby_ai' ? "text-amber-600/70" : "text-slate-400"
+                    )}>
                       {new Date(record.date).toLocaleDateString()}
                     </span>
                   </div>
 
                   {record.note && (
-                    <p className="text-slate-700 whitespace-pre-wrap leading-relaxed mt-2 mb-4">
-                      {record.note}
+                    <p className={cn(
+                      "whitespace-pre-wrap leading-relaxed mt-2 mb-4",
+                      record.type === 'baby_ai' ? "text-amber-900 font-medium italic" : "text-slate-700"
+                    )}>
+                      {record.type === 'baby_ai' && "「"}{record.note}{record.type === 'baby_ai' && "」"}
                     </p>
                   )}
                 </>
