@@ -119,7 +119,7 @@ export async function chatWithConsultant(
 
     const response = await withKeyFallback(async (ai) => {
       const resp = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-1.5-flash",
         contents: contents,
         config: {
           systemInstruction: context,
@@ -160,7 +160,7 @@ export async function analyzeSettingsImage(base64Image: { mimeType: string; data
 
     const response = await withKeyFallback(async (ai) => {
       const resp = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-1.5-flash",
         contents: [
           { role: "user", parts: [
             { inlineData: { mimeType: base64Image.mimeType, data: base64Image.data } },

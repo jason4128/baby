@@ -93,28 +93,22 @@ service cloud.firestore {
     function isValidBabyRecord(data) {
       return data.keys().hasAll(['userId', 'date', 'type', 'createdAt'])
         && data.userId is string
-        && data.date is string && data.date.size() <= 60
-        && data.type is string && data.type in ['image', 'video', 'text']
+        && data.date is string && data.date.size() <= 120
+        && data.type is string && data.type in ['image', 'video', 'text', 'baby_ai']
         && data.createdAt is timestamp
-        && ( !('url' in data) || (data.url is string && data.url.size() <= 1000000) )
-        && ( !('driveFileId' in data) || (data.driveFileId is string && data.driveFileId.size() <= 500) )
-        && ( !('note' in data) || (data.note is string && data.note.size() <= 2000) )
+        && ( !('url' in data) || (data.url is string && data.url.size() <= 2000000) )
+        && ( !('driveFileId' in data) || (data.driveFileId is string && data.driveFileId.size() <= 1000) )
+        && ( !('note' in data) || (data.note is string && data.note.size() <= 5000) )
         && ( !('weekCount' in data) || data.weekCount is number )
         && ( !('dayCount' in data) || data.dayCount is number );
     }
 
     match /records/{recordId} {
-      allow get: if isSignedIn() && isValidId(recordId);
+      allow get: if isSignedIn();
       allow list: if isSignedIn();
-      allow create: if isSignedIn() && isAdmin() && isValidId(recordId)
-                    && isValidBabyRecord(incoming())
-                    && incoming().createdAt == request.time;
-      allow update: if isSignedIn() && isAdmin() && isValidId(recordId)
-                    && isValidBabyRecord(incoming())
-                    && incoming().userId == existing().userId
-                    && incoming().createdAt == existing().createdAt
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'note', 'url', 'driveFileId', 'weekCount', 'dayCount']);
-      allow delete: if isSignedIn() && isAdmin() && isValidId(recordId);
+      allow create: if isSignedIn() && (isAdmin() || request.auth.uid == incoming().userId);
+      allow update: if isSignedIn() && (isAdmin() || request.auth.uid == existing().userId);
+      allow delete: if isSignedIn() && (isAdmin() || request.auth.uid == existing().userId);
     }
 
     // Comment Validations

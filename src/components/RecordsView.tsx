@@ -174,7 +174,9 @@ export default function RecordsView({
       if (!auth.currentUser || isGeneratingDaily) return;
       
       const todayStr = new Date().toISOString().split('T')[0];
-      const q = query(
+      
+      // 1. Check if today's message exists
+      const qToday = query(
         collection(db, 'records'), 
         where('userId', '==', auth.currentUser.uid),
         where('type', '==', 'baby_ai'),
@@ -183,51 +185,32 @@ export default function RecordsView({
       );
       
       try {
-        const snap = await getDocs(q);
-        if (snap.empty) {
+        const snapToday = await getDocs(qToday);
+        if (snapToday.empty) {
           setIsGeneratingDaily(true);
           await generateDailyBabyNote();
-        } else {
-          // If we have today's message but no image, let's retroactively generate it
-          const existingDoc = snap.docs[0];
-          const existingData = existingDoc.data();
-          if (!existingData.url || existingData.url === "") {
-            setIsGeneratingDaily(true);
-            try {
-              const imagePrompt = `Cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities related to this thought: "${existingData.note}". Minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-              
-              const responseImageUrl = await withKeyFallback(async (ai) => {
-                const response = await ai.models.generateContent({
-                  model: 'gemini-3.1-flash-image-preview',
-                  contents: {
-                    parts: [{ text: imagePrompt }],
-                  },
-                  config: {
-                    // @ts-ignore
-                    imageConfig: {
-                      aspectRatio: "1:1",
-                      imageSize: "512px" /* to keep payload small for firestore */
-                    }
-                  }
-                });
-        
-                const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-                if (part && part.inlineData) {
-                  return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-                }
-                return null;
-              });
+          return;
+        }
 
-              if (responseImageUrl) {
-                await updateDoc(doc(db, 'records', existingDoc.id), {
-                  url: responseImageUrl
-                });
-              }
-            } catch (err) {
-               console.error("Failed to generate image for existing baby note", err);
-            } finally {
-              setIsGeneratingDaily(false);
-            }
+        // 2. Retroactively fix missing images for ANY baby_ai record of this user
+        const qMissing = query(
+          collection(db, 'records'),
+          where('userId', '==', auth.currentUser.uid),
+          where('type', '==', 'baby_ai'),
+          limit(5) // Process a few at a time to stay safe
+        );
+        
+        const snapMissing = await getDocs(qMissing);
+        for (const recordDoc of snapMissing.docs) {
+          const data = recordDoc.data();
+          if (!data.url || data.url === "") {
+            const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${data.note.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
+            const seed = Math.floor(Math.random() * 1000000);
+            const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
+            
+            await updateDoc(doc(db, 'records', recordDoc.id), {
+              url: imageUrl
+            });
           }
         }
       } catch (err) {
@@ -295,35 +278,17 @@ export default function RecordsView({
 
       const responseText = await withKeyFallback(async (ai) => {
         const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-1.5-flash',
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           config: { temperature: 1.0 }
         });
         return response.text;
       });
 
-      let imageUrl = "";
       if (responseText) {
-        try {
-          const imagePrompt = `Cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities related to this thought: "${responseText}". Minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-          imageUrl = await withKeyFallback(async (ai) => {
-            const imgRes = await ai.models.generateContent({
-              model: 'gemini-3.1-flash-image-preview',
-              contents: { parts: [{ text: imagePrompt }] },
-              config: {
-                // @ts-ignore
-                imageConfig: { aspectRatio: "1:1", imageSize: "512px" }
-              }
-            });
-            const part = imgRes.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-            if (part && part.inlineData) {
-              return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-            }
-            return "";
-          });
-        } catch (imgErr) {
-          console.error("Failed to generate image", imgErr);
-        }
+        const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${responseText.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
+        const seed = Math.floor(Math.random() * 1000000);
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
         
         await addDoc(collection(db, 'records'), {
           userId: auth.currentUser.uid,
@@ -344,30 +309,13 @@ export default function RecordsView({
   const handleRegenerateBabyImage = async (record: RecordEntry) => {
     setIsGeneratingDaily(true);
     try {
-      const imagePrompt = `Cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities related to this thought: "${record.note}". Minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-      
-      const responseImageUrl = await withKeyFallback(async (ai) => {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.1-flash-image-preview',
-          contents: { parts: [{ text: imagePrompt }] },
-          config: {
-            // @ts-ignore
-            imageConfig: { aspectRatio: "1:1", imageSize: "512px" }
-          }
-        });
+      const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${record.note.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
+      const seed = Math.floor(Math.random() * 1000000);
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
 
-        const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (part && part.inlineData) {
-          return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-        }
-        return null;
+      await updateDoc(doc(db, 'records', record.id), {
+        url: imageUrl
       });
-
-      if (responseImageUrl) {
-        await updateDoc(doc(db, 'records', record.id), {
-          url: responseImageUrl
-        });
-      }
     } catch (err) {
        console.error("Failed to regenerate image for existing baby note", err);
     } finally {
