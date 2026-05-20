@@ -56,6 +56,7 @@ export type RecordEntry = {
   url: string;
   driveFileId?: string;
   note: string;
+  quotes?: string[];
   weekCount: number;
   dayCount: number;
   userId: string;
@@ -80,6 +81,7 @@ export default function RecordsView({
   userProfile,
 }: RecordsViewProps) {
   const [records, setRecords] = useState<RecordEntry[]>([]);
+  const [activeTab, setActiveTab] = useState<'parents' | 'baby'>('parents');
   const [isAdding, setIsAdding] = useState(false);
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -110,13 +112,22 @@ export default function RecordsView({
       clearTimeout(bubbleTimerRef.current);
     }
 
+    const dynamicQuotes = records
+      .filter((r) => r.type === 'baby_ai' && r.quotes && Array.isArray(r.quotes))
+      .map((r) => r.quotes)
+      .flat();
+      
+    // Optionally deduplicate or just append. 
+    // This allows dynamic quotes to be selected
+    const combinedMessages = [...BABY_MESSAGES, ...dynamicQuotes];
+
     let nextIndex;
     do {
-      nextIndex = Math.floor(Math.random() * BABY_MESSAGES.length);
-    } while (nextIndex === lastMessageIndex && BABY_MESSAGES.length > 1);
+      nextIndex = Math.floor(Math.random() * combinedMessages.length);
+    } while (nextIndex === lastMessageIndex && combinedMessages.length > 1);
 
     setLastMessageIndex(nextIndex);
-    const msg = BABY_MESSAGES[nextIndex];
+    const msg = combinedMessages[nextIndex];
     
     const normalizedMsg = typeof msg === 'string' ? { text: msg } : msg;
     setBabyMessage(normalizedMsg as any);
@@ -173,7 +184,9 @@ export default function RecordsView({
     const checkDailyMessage = async () => {
       if (!auth.currentUser || isGeneratingDaily) return;
       
-      const todayStr = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const localStartOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayStr = localStartOfDay.toISOString();
       
       // 1. Check if today's message exists
       const qToday = query(
@@ -261,31 +274,85 @@ export default function RecordsView({
     if (!auth.currentUser) return;
 
     try {
+      // Fetch recent comments from the last baby_ai diary
+      let recentCommentsContext = "";
+      try {
+        const now = new Date();
+        const yesterdayLocalStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        const yesterdayStr = yesterdayLocalStart.toISOString();
+        const qRecentAi = query(
+          collection(db, 'records'),
+          where('userId', '==', auth.currentUser.uid),
+          where('type', '==', 'baby_ai'),
+          where('date', '>=', yesterdayStr),
+          limit(2)
+        );
+        const recentAiDocs = await getDocs(qRecentAi);
+        
+        let allComments: any[] = [];
+        for (const docSnapshot of recentAiDocs.docs) {
+          const commentsQ = query(collection(db, 'records', docSnapshot.id, 'comments'), orderBy('createdAt', 'asc'));
+          const commentsSnap = await getDocs(commentsQ);
+          commentsSnap.forEach(c => allComments.push(c.data()));
+        }
+
+        if (allComments.length > 0) {
+          const commentsText = allComments.map(c => `${c.nickname || '爸爸/媽媽'}說：「${c.text}」`).join('\n');
+          recentCommentsContext = `\n昨天的日記中，爸爸媽媽有對你說話：\n${commentsText}\n\n請你在今天的日記中自然地回應他們的話（不用刻意說"回覆留言"，就很像你在跟他們對話）。`;
+        }
+      } catch (e) {
+        console.error("Failed to fetch recent comments", e);
+      }
+
       const prompt = `你是一個在媽媽肚子裡的寶寶，現在是第 ${pregWeek} 週第 ${pregDay} 天。
 你的個性：
 1. 超級愛澱粉（麵包、吐司、米飯、地瓜、麻糬等）。
 2. 把自己想像成一隻「點點鯊」（鯨鯊），肚子圓圓軟軟。
-3. 語氣可愛、調皮，有時候會跟爸爸媽媽撒嬌，有時候會吐槽爸爸。
+3. 語氣可愛、調皮，有時候會跟爸爸媽媽撒嬌，有時候會吐槽爸爸。${recentCommentsContext}
 
-請幫我寫一段「寶寶每日心情紀錄」，約 50-100 字。
+任務1：請寫一段「寶寶每日心情紀錄」，約 50-100 字。
 內容可以包含：
 - 我在肚子裡做了什麼（游泳、翻身、打嗝、睡覺）。
-- 我對媽媽今天（或最近）吃的東西的評價（如果是澱粉就大讚，如果是苦的菜或腥的魚就撒嬌要澱粉壓驚）。
-- 對爸爸的叮嚀（要幫媽媽按摩、要買好吃的、要跟小窩說話）。
+- 我對媽媽今天（或最近）吃的東西的評價。
+- 對爸爸的叮嚀。
 
-請只回傳一段純文字內容，不要有任何標題或 Markdown 標記。`;
+任務2：請另外設計 3 句隨機想跟爸媽說的「短語」（10-30字），要有新鮮感，可以用來給爸媽點擊寶寶時顯示。
+
+請務必只回傳嚴格的 JSON 格式，不要包含任何 markdown 或其他文字標記，格式如下：
+{
+  "diary": "寶寶每日心情紀錄的內容...",
+  "quotes": ["短語1", "短語2", "短語3"]
+}`;
 
       const responseText = await withKeyFallback(async (ai) => {
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          config: { temperature: 1.0 }
+          config: { temperature: 1.0, responseMimeType: 'application/json' }
         });
         return response.text;
       });
 
       if (responseText) {
-        const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${responseText.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
+        let parsed;
+        let cleanText = responseText.trim();
+        if (cleanText.startsWith('```json')) {
+          cleanText = cleanText.replace(/```json\n?/, '').replace(/```$/, '').trim();
+        } else if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/```\n?/, '').replace(/```$/, '').trim();
+        }
+
+        try {
+          parsed = JSON.parse(cleanText);
+        } catch (e) {
+          console.error("JSON parse error for daily note", e);
+          parsed = { diary: responseText, quotes: [] };
+        }
+        
+        const noteContent = parsed.diary || responseText;
+        const noteQuotes = parsed.quotes || [];
+
+        const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${noteContent.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
         const seed = Math.floor(Math.random() * 1000000);
         const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
         
@@ -294,7 +361,8 @@ export default function RecordsView({
           date: new Date().toISOString(),
           type: "baby_ai",
           url: imageUrl,
-          note: responseText.trim(),
+          note: noteContent.trim(),
+          quotes: noteQuotes,
           weekCount: pregWeek,
           dayCount: pregDay,
           createdAt: serverTimestamp()
@@ -448,6 +516,10 @@ export default function RecordsView({
     e.preventDefault();
     setIsEditingDate(false);
   };
+
+  const displayedRecords = records.filter(record => 
+    activeTab === 'baby' ? record.type === 'baby_ai' : record.type !== 'baby_ai'
+  );
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#FDFBF7]">
@@ -730,14 +802,35 @@ export default function RecordsView({
             </div>
           )}
 
+          <div className="flex bg-slate-100/50 p-1 rounded-xl mb-4 text-sm font-medium">
+            <button
+              onClick={() => setActiveTab('parents')}
+              className={cn(
+                "flex-1 py-2 rounded-lg transition-all",
+                activeTab === 'parents' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              我們自己打的紀錄
+            </button>
+            <button
+              onClick={() => setActiveTab('baby')}
+              className={cn(
+                "flex-1 py-2 rounded-lg transition-all",
+                activeTab === 'baby' ? "bg-white text-amber-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              寶寶自己的每日日記
+            </button>
+          </div>
+
           <div className="space-y-4">
-            {records.length === 0 && !isAdding ? (
+            {displayedRecords.length === 0 && !isAdding ? (
               <div className="text-center py-12 text-slate-400">
                 <Camera className="w-12 h-12 mx-auto mb-3 opacity-20" />
                 <p>目前還沒有任何紀錄，趕快點擊上方「新增紀錄」吧！</p>
               </div>
             ) : (
-              records.map((record) => (
+              displayedRecords.map((record) => (
         <div key={record.id} className="space-y-2">
           <div
             className={cn(
