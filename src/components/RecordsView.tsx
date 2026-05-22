@@ -17,6 +17,17 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from "../lib/utils";
 import { BABY_MESSAGES } from '../constants/babyMessages';
+import { 
+  BABY_MESSAGES_STARCH,
+  BABY_MESSAGES_MOM_HARDWORK,
+  BABY_MESSAGES_DAD_TASKS,
+  BABY_MESSAGES_TAIWAN_FOOD,
+  BABY_MESSAGES_FUTURE
+} from '../constants/babyMessagesDynamic';
+import { BABY_MESSAGES_NEW_PART_1, BABY_MESSAGES_NEW_PART_2 } from '../constants/babyMessagesAdd1';
+import { BABY_MESSAGES_NEW_PART_3 } from '../constants/babyMessagesAdd3';
+import { BABY_MESSAGES_NEW_PART_4 } from '../constants/babyMessagesAdd4';
+import { BABY_MESSAGES_NEW_PART_OPTIONS } from '../constants/babyMessagesAddOptions';
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
 import { withKeyFallback } from "../services/gemini";
 import { 
@@ -116,19 +127,47 @@ export default function RecordsView({
       .filter((r) => r.type === 'baby_ai' && r.quotes && Array.isArray(r.quotes))
       .map((r) => r.quotes)
       .flat();
-      
-    // Optionally deduplicate or just append. 
-    // This allows dynamic quotes to be selected
-    const combinedMessages = [...BABY_MESSAGES, ...dynamicQuotes];
 
-    let nextIndex;
-    do {
-      nextIndex = Math.floor(Math.random() * combinedMessages.length);
-    } while (nextIndex === lastMessageIndex && combinedMessages.length > 1);
+    const hour = new Date().getHours();
+    let candidateList: any[] = [];
+    const rnd = Math.random();
 
-    setLastMessageIndex(nextIndex);
-    const msg = combinedMessages[nextIndex];
+    // 25% chance to guarantee Starch/Bread message (Rule 3)
+    // Else fall back to time-based logic (Rule 1)
+    if (rnd < 0.25) {
+      candidateList = BABY_MESSAGES_STARCH;
+    } else {
+      if (hour >= 6 && hour < 10) {
+        candidateList = BABY_MESSAGES_STARCH; // Morning bread
+      } else if (hour >= 22 || hour < 4) {
+        candidateList = BABY_MESSAGES_TAIWAN_FOOD; // Late night snack
+      } else if (hour >= 10 && hour < 18) {
+        // Working hours -> Mom hardwork & Dad tasks
+        candidateList = [...BABY_MESSAGES_MOM_HARDWORK, ...BABY_MESSAGES_DAD_TASKS];
+      } else {
+        // Evening / random
+        candidateList = [
+          ...BABY_MESSAGES_FUTURE, 
+          ...BABY_MESSAGES_TAIWAN_FOOD, 
+          ...BABY_MESSAGES,
+          ...BABY_MESSAGES_NEW_PART_1,
+          ...BABY_MESSAGES_NEW_PART_2,
+          ...BABY_MESSAGES_NEW_PART_3,
+          ...BABY_MESSAGES_NEW_PART_4,
+          ...BABY_MESSAGES_NEW_PART_OPTIONS
+        ];
+      }
+    }
+
+    // Mix in dynamic quotes ~20% of the time if available
+    if (dynamicQuotes.length > 0 && Math.random() < 0.2) {
+      candidateList = dynamicQuotes;
+    }
+
+    const nextIndex = Math.floor(Math.random() * candidateList.length);
+    const msg = candidateList[nextIndex];
     
+    // We don't use setLastMessageIndex anymore for the complex list since it can shift
     const normalizedMsg = typeof msg === 'string' ? { text: msg } : msg;
     setBabyMessage(normalizedMsg as any);
     setBabyResponse(null);
@@ -188,42 +227,42 @@ export default function RecordsView({
       const localStartOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const todayStr = localStartOfDay.toISOString();
       
-      // 1. Check if today's message exists
-      const qToday = query(
+      // 1. Check if today's message exists, using existing index (userId + orderBy date)
+      const qRecent = query(
         collection(db, 'records'), 
         where('userId', '==', auth.currentUser.uid),
-        where('type', '==', 'baby_ai'),
-        where('date', '>=', todayStr),
-        limit(1)
+        orderBy('date', 'desc'),
+        limit(10)
       );
       
       try {
-        const snapToday = await getDocs(qToday);
-        if (snapToday.empty) {
+        const snapRecent = await getDocs(qRecent);
+        const todayAiRecord = snapRecent.docs.find(d => {
+          const data = d.data();
+          return data.type === 'baby_ai' && data.date >= todayStr;
+        });
+
+        if (!todayAiRecord) {
           setIsGeneratingDaily(true);
           await generateDailyBabyNote();
+          return;
         }
 
-        // 2. Retroactively fix missing images for ANY baby_ai record of this user
-        const qMissing = query(
-          collection(db, 'records'),
-          where('userId', '==', auth.currentUser.uid),
-          where('type', '==', 'baby_ai'),
-          limit(5) // Process a few at a time to stay safe
-        );
-        
-        const snapMissing = await getDocs(qMissing);
-        for (const recordDoc of snapMissing.docs) {
+        // 2. Retroactively fix missing images for ANY baby_ai record of this user (using the same recent snapshot to avoid index needs)
+        const missingImageDocs = snapRecent.docs.filter(d => {
+          const data = d.data();
+          return data.type === 'baby_ai' && (!data.url || data.url === "");
+        });
+
+        for (const recordDoc of missingImageDocs) {
           const data = recordDoc.data();
-          if (!data.url || data.url === "") {
-            const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${data.note.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-            const seed = Math.floor(Math.random() * 1000000);
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
-            
-            await updateDoc(doc(db, 'records', recordDoc.id), {
-              url: imageUrl
-            });
-          }
+          const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${data.note.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
+          const seed = Math.floor(Math.random() * 1000000);
+          const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
+          
+          await updateDoc(doc(db, 'records', recordDoc.id), {
+            url: imageUrl
+          });
         }
       } catch (err) {
         console.error("Failed to check daily message", err);
