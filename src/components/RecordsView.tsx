@@ -547,7 +547,9 @@ export default function RecordsView({
     else size = "newborn chubby baby ready to be born";
 
     const prompt = `cute very simple flat vector illustration of ${size}, wearing a light blue whale shark costume with white polka dots, minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-    const seed = week === 7 ? `888123` : `999${week}`;
+    let seed = `999${week}`;
+    if (week === 7) seed = `888123`;
+    if (week === 8) seed = `888128`; // Regenerate week 8
     return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=${seed}`;
   };
 
