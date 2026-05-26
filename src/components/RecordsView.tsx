@@ -56,7 +56,8 @@ import {
   deleteFromDrive, 
   getDriveFileUrl, 
   makeFilePublic,
-  getOrCreateFolder
+  getOrCreateFolder,
+  ensureAuth
 } from "../services/googleDrive";
 import { SlotMachineModal } from "./SlotMachineModal";
 
@@ -102,6 +103,7 @@ export default function RecordsView({
   const [editNote, setEditNote] = useState("");
   const [editDate, setEditDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const [babyMessage, setBabyMessage] = useState<any>(null);
@@ -304,6 +306,7 @@ export default function RecordsView({
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setMediaFile(file);
+      setSaveError(null);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(URL.createObjectURL(file));
     }
@@ -432,8 +435,10 @@ export default function RecordsView({
   const handleAddRecord = async () => {
     if (!auth.currentUser || (!mediaFile && !note.trim())) return;
     
+    setSaveError(null);
+
     if (mediaFile && !oauthClientId) {
-      alert("請先前往「廚備設定」設定 Google OAuth Client ID，才能上傳照片或影片到 Google Drive。");
+      setSaveError("請先前往右上角「廚備設定」設定 Google OAuth Client ID，才能上傳照片或影片到 Google Drive。");
       return;
     }
 
@@ -444,6 +449,14 @@ export default function RecordsView({
       let driveFileId = "";
 
       if (mediaFile) {
+        // 先呼叫 ensureAuth，確保瀏覽器不會因為異步 API 的調用而阻擋 Google OAuth 登入彈出視窗
+        try {
+          await ensureAuth();
+        } catch (authErr: any) {
+          console.error("Auth pre-check failed", authErr);
+          throw new Error(authErr.message || "Google 雲端硬碟授權驗證失敗，請確認已核准權限。");
+        }
+
         // Upload to Google Drive instead of Base64 to Firestore
         try {
           const isVideo = mediaFile.type.startsWith("video");
@@ -454,9 +467,9 @@ export default function RecordsView({
           
           // Make file accessible to anyone with the link so it can be seen on other devices
           await makeFilePublic(driveFile.id);
-        } catch (driveErr) {
+        } catch (driveErr: any) {
           console.error("Drive upload failed", driveErr);
-          throw new Error("雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
+          throw new Error(driveErr.message || "雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
         }
       }
       
@@ -481,7 +494,7 @@ export default function RecordsView({
       setNote("");
       setRecordDate(new Date().toISOString().split('T')[0]);
     } catch (e: any) {
-      alert(e.message || "上傳失敗，請稍後再試。");
+      setSaveError(e.message || "上傳與儲存失敗，請確認相關設定或稍後再試。");
       handleFirestoreError(e, OperationType.CREATE, 'records');
     } finally {
       setIsSaving(false);
@@ -734,7 +747,7 @@ export default function RecordsView({
             </div>
             {!userProfile?.isGuest && (
               <button
-                onClick={() => setIsAdding(!isAdding)}
+                onClick={() => { setIsAdding(!isAdding); setSaveError(null); }}
                 className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition"
               >
                 <Plus className="w-4 h-4" />
@@ -750,7 +763,7 @@ export default function RecordsView({
                   今日紀錄 (第 {pregWeek} 週 {pregDay} 天)
                 </h3>
                 <button
-                  onClick={() => setIsAdding(false)}
+                  onClick={() => { setIsAdding(false); setSaveError(null); }}
                   className="text-slate-400 hover:text-slate-600"
                 >
                   <X className="w-5 h-5" />
@@ -830,13 +843,33 @@ export default function RecordsView({
                   </div>
                 )}
 
+                {saveError && (
+                  <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-semibold flex items-start justify-between gap-2 animate-in fade-in">
+                    <span className="leading-relaxed">⚠️ {saveError}</span>
+                    <button 
+                      onClick={() => setSaveError(null)} 
+                      type="button"
+                      className="text-red-400 hover:text-red-600 font-bold text-sm shrink-0 self-center"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
                 <div className="pt-2 flex justify-end">
                   <button
                     onClick={handleAddRecord}
-                    disabled={!mediaFile && !note.trim()}
-                    className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-xl disabled:opacity-50 hover:bg-indigo-700 transition"
+                    disabled={isSaving || (!mediaFile && !note.trim())}
+                    className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-xl disabled:opacity-50 hover:bg-indigo-700 transition flex items-center gap-2"
                   >
-                    儲存
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>儲存上傳中...</span>
+                      </>
+                    ) : (
+                      "儲存"
+                    )}
                   </button>
                 </div>
               </div>
