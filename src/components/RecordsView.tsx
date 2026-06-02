@@ -27,6 +27,7 @@ import {
 import { BABY_MESSAGES_NEW_PART_1, BABY_MESSAGES_NEW_PART_2 } from '../constants/babyMessagesAdd1';
 import { BABY_MESSAGES_NEW_PART_3 } from '../constants/babyMessagesAdd3';
 import { BABY_MESSAGES_NEW_PART_4 } from '../constants/babyMessagesAdd4';
+import { BABY_MESSAGES_NEW_PART_5 } from '../constants/babyMessagesAdd5';
 import { BABY_MESSAGES_NEW_PART_OPTIONS } from '../constants/babyMessagesAddOptions';
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
 import { withKeyFallback } from "../services/gemini";
@@ -156,6 +157,7 @@ export default function RecordsView({
           ...BABY_MESSAGES_NEW_PART_2,
           ...BABY_MESSAGES_NEW_PART_3,
           ...BABY_MESSAGES_NEW_PART_4,
+          ...BABY_MESSAGES_NEW_PART_5,
           ...BABY_MESSAGES_NEW_PART_OPTIONS
         ];
       }
