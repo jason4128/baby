@@ -198,3 +198,36 @@ export function fileToBase64(file: File): Promise<string> {
     reader.onerror = (error) => reject(error);
   });
 }
+
+// Helper to resize base64 image using canvas to ensure it fits in Firestore
+async function resizeBase64Image(base64Str: string, maxWidth = 512): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+      }
+      // Return high compression jpeg to save space
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.src = `data:image/jpeg;base64,${base64Str}`;
+  });
+}
+
+export async function generateBabyImageLocal(noteContent: string): Promise<string> {
+  return "fixed";
+}

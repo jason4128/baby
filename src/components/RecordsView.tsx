@@ -51,7 +51,7 @@ import {
   User,
   Trash2
 } from "lucide-react";
-import { fileToBase64 } from "../services/gemini";
+import { fileToBase64, generateBabyImageLocal } from "../services/gemini";
 import { 
   uploadToDrive, 
   deleteFromDrive, 
@@ -85,6 +85,8 @@ interface RecordsViewProps {
   userProfile: any;
 }
 
+import babyWhaleSharkImage from "../assets/images/B.png";
+
 export default function RecordsView({
   pregWeek,
   pregDay,
@@ -94,7 +96,6 @@ export default function RecordsView({
   userProfile,
 }: RecordsViewProps) {
   const [records, setRecords] = useState<RecordEntry[]>([]);
-  const [activeTab, setActiveTab] = useState<'parents' | 'baby'>('parents');
   const [isAdding, setIsAdding] = useState(false);
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -114,7 +115,6 @@ export default function RecordsView({
   const [lastMessageIndex, setLastMessageIndex] = useState(-1);
   const bubbleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isSlotMachineOpen, setIsSlotMachineOpen] = useState(false);
-  const [isGeneratingDaily, setIsGeneratingDaily] = useState(false);
 
   const handleBabyClick = (e?: React.MouseEvent) => {
     if (e) {
@@ -223,65 +223,12 @@ export default function RecordsView({
   useEffect(() => {
     if (!auth.currentUser) return;
     
-    // Check if daily baby message needs to be generated
-    const checkDailyMessage = async () => {
-      if (!auth.currentUser || isGeneratingDaily) return;
-      
-      const now = new Date();
-      const localStartOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const todayStr = localStartOfDay.toISOString();
-      
-      // 1. Check if today's message exists, using existing index (userId + orderBy date)
-      const qRecent = query(
-        collection(db, 'records'), 
-        where('userId', '==', auth.currentUser.uid),
-        orderBy('date', 'desc'),
-        limit(10)
-      );
-      
-      try {
-        const snapRecent = await getDocs(qRecent);
-        const todayAiRecord = snapRecent.docs.find(d => {
-          const data = d.data();
-          return data.type === 'baby_ai' && data.date >= todayStr;
-        });
-
-        if (!todayAiRecord) {
-          setIsGeneratingDaily(true);
-          await generateDailyBabyNote();
-          return;
-        }
-
-        // 2. Retroactively fix missing images for ANY baby_ai record of this user (using the same recent snapshot to avoid index needs)
-        const missingImageDocs = snapRecent.docs.filter(d => {
-          const data = d.data();
-          return data.type === 'baby_ai' && (!data.url || data.url === "");
-        });
-
-        for (const recordDoc of missingImageDocs) {
-          const data = recordDoc.data();
-          const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${data.note.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-          const seed = Math.floor(Math.random() * 1000000);
-          const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
-          
-          await updateDoc(doc(db, 'records', recordDoc.id), {
-            url: imageUrl
-          });
-        }
-      } catch (err) {
-        console.error("Failed to check daily message", err);
-      } finally {
-        setIsGeneratingDaily(false);
-      }
-    };
-
-    checkDailyMessage();
-
     const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
     const isGuestUser = userProfile?.isGuest || userProfile?.role === 'guest';
     const q = (isMainAccount || isGuestUser)
       ? query(collection(db, 'records'), orderBy('date', 'desc'))
       : query(collection(db, 'records'), where('userId', '==', auth.currentUser.uid), orderBy('date', 'desc'));
+
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedRecords = snapshot.docs.map(doc => ({ 
@@ -311,126 +258,6 @@ export default function RecordsView({
       setSaveError(null);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(URL.createObjectURL(file));
-    }
-  };
-
-  const generateDailyBabyNote = async () => {
-    if (!auth.currentUser) return;
-
-    try {
-      // Fetch recent comments from the last baby_ai diary
-      let recentCommentsContext = "";
-      try {
-        const now = new Date();
-        const yesterdayLocalStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        const yesterdayStr = yesterdayLocalStart.toISOString();
-        const qRecentAi = query(
-          collection(db, 'records'),
-          where('userId', '==', auth.currentUser.uid),
-          where('type', '==', 'baby_ai'),
-          where('date', '>=', yesterdayStr),
-          limit(2)
-        );
-        const recentAiDocs = await getDocs(qRecentAi);
-        
-        let allComments: any[] = [];
-        for (const docSnapshot of recentAiDocs.docs) {
-          const commentsQ = query(collection(db, 'records', docSnapshot.id, 'comments'), orderBy('createdAt', 'asc'));
-          const commentsSnap = await getDocs(commentsQ);
-          commentsSnap.forEach(c => allComments.push(c.data()));
-        }
-
-        if (allComments.length > 0) {
-          const commentsText = allComments.map(c => `${c.nickname || '爸爸/媽媽'}說：「${c.text}」`).join('\n');
-          recentCommentsContext = `\n昨天的日記中，爸爸媽媽有對你說話：\n${commentsText}\n\n請你在今天的日記中自然地回應他們的話（不用刻意說"回覆留言"，就很像你在跟他們對話）。`;
-        }
-      } catch (e) {
-        console.error("Failed to fetch recent comments", e);
-      }
-
-      const prompt = `你是一個在媽媽肚子裡的寶寶，現在是第 ${pregWeek} 週第 ${pregDay} 天。
-你的個性：
-1. 超級愛澱粉（麵包、吐司、米飯、地瓜、麻糬等）。
-2. 把自己想像成一隻「點點鯊」（鯨鯊），肚子圓圓軟軟。
-3. 語氣可愛、調皮，有時候會跟爸爸媽媽撒嬌，有時候會吐槽爸爸。${recentCommentsContext}
-
-任務1：請寫一段「寶寶每日心情紀錄」，約 50-100 字。
-內容可以包含：
-- 我在肚子裡做了什麼（游泳、翻身、打嗝、睡覺）。
-- 我對媽媽今天（或最近）吃的東西的評價。
-- 對爸爸的叮嚀。
-
-任務2：請另外設計 3 句隨機想跟爸媽說的「短語」（10-30字），要有新鮮感，可以用來給爸媽點擊寶寶時顯示。
-
-請務必只回傳嚴格的 JSON 格式，不要包含任何 markdown 或其他文字標記，格式如下：
-{
-  "diary": "寶寶每日心情紀錄的內容...",
-  "quotes": ["短語1", "短語2", "短語3"]
-}`;
-
-      const responseText = await withKeyFallback(async (ai) => {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          config: { temperature: 1.0, responseMimeType: 'application/json' }
-        });
-        return response.text;
-      });
-
-      if (responseText) {
-        let parsed;
-        let cleanText = responseText.trim();
-        if (cleanText.startsWith('```json')) {
-          cleanText = cleanText.replace(/```json\n?/, '').replace(/```$/, '').trim();
-        } else if (cleanText.startsWith('```')) {
-          cleanText = cleanText.replace(/```\n?/, '').replace(/```$/, '').trim();
-        }
-
-        try {
-          parsed = JSON.parse(cleanText);
-        } catch (e) {
-          console.error("JSON parse error for daily note", e);
-          parsed = { diary: responseText, quotes: [] };
-        }
-        
-        const noteContent = parsed.diary || responseText;
-        const noteQuotes = parsed.quotes || [];
-
-        const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${noteContent.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-        const seed = Math.floor(Math.random() * 1000000);
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
-        
-        await addDoc(collection(db, 'records'), {
-          userId: auth.currentUser.uid,
-          date: new Date().toISOString(),
-          type: "baby_ai",
-          url: imageUrl,
-          note: noteContent.trim(),
-          quotes: noteQuotes,
-          weekCount: pregWeek,
-          dayCount: pregDay,
-          createdAt: serverTimestamp()
-        });
-      }
-    } catch (e) {
-      console.error("Failed to generate daily baby note", e);
-    }
-  };
-
-  const handleRegenerateBabyImage = async (record: RecordEntry) => {
-    setIsGeneratingDaily(true);
-    try {
-      const imagePrompt = `cute very simple flat vector illustration of a baby, wearing a light blue whale shark costume with white polka dots, doing activities: "${record.note.substring(0, 80)}", minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-      const seed = Math.floor(Math.random() * 1000000);
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=512&height=512&nologo=true&seed=${seed}`;
-
-      await updateDoc(doc(db, 'records', record.id), {
-        url: imageUrl
-      });
-    } catch (err) {
-       console.error("Failed to regenerate image for existing baby note", err);
-    } finally {
-      setIsGeneratingDaily(false);
     }
   };
 
@@ -549,23 +376,7 @@ export default function RecordsView({
   const formattedDueDate = `${dueDate.getFullYear()}/${String(dueDate.getMonth() + 1).padStart(2, "0")}/${String(dueDate.getDate()).padStart(2, "0")}`;
 
   const getFetusImagePrompt = (week: number) => {
-    let size = "";
-    if (week <= 4) size = "fertilized egg or very early cell stage";
-    else if (week <= 8) size = "early embryo state, tiny and curved";
-    else if (week <= 12) size = "small fetus with developing features";
-    else if (week <= 16) size = "palm-sized fetus with distinct shape";
-    else if (week <= 20) size = "well-formed small baby fetus";
-    else if (week <= 24) size = "growing baby with visible limbs";
-    else if (week <= 28) size = "plump sleeping premature baby";
-    else if (week <= 32) size = "chubby sleeping baby";
-    else if (week <= 36) size = "fully developed sleeping baby";
-    else size = "newborn chubby baby ready to be born";
-
-    const prompt = `cute very simple flat vector illustration of ${size}, wearing a light blue whale shark costume with white polka dots, minimalistic icon style, round baby shape, simple beige circular background, pure white backdrop, centered, no shading, simple pastel colors`;
-    let seed = `999${week}`;
-    if (week === 7) seed = `888123`;
-    if (week === 8) seed = `888128`; // Regenerate week 8
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=400&height=400&nologo=true&seed=${seed}`;
+    return babyWhaleSharkImage;
   };
 
   const handleDateSubmit = (e: React.FormEvent) => {
@@ -573,9 +384,7 @@ export default function RecordsView({
     setIsEditingDate(false);
   };
 
-  const displayedRecords = records.filter(record => 
-    activeTab === 'baby' ? record.type === 'baby_ai' : record.type !== 'baby_ai'
-  );
+  const displayedRecords = records.filter(record => record.type !== 'baby_ai');
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#FDFBF7]">
@@ -673,11 +482,11 @@ export default function RecordsView({
               className="absolute inset-0 rounded-full shadow-sm border border-amber-50 overflow-hidden bg-white cursor-pointer z-10"
             >
               {/* Cute Baby Fetus Illustration */}
-              <div className="relative w-full h-full flex flex-col items-center justify-center p-2">
+              <div className="relative w-full h-full flex flex-col items-center justify-center">
                 <img
                   src={getFetusImagePrompt(pregWeek)}
                   alt="Baby"
-                  className="w-full h-full object-contain rounded-full shadow-inner"
+                  className="w-full h-full object-cover rounded-full shadow-inner"
                 />
               </div>
             </motion.div>
@@ -878,27 +687,6 @@ export default function RecordsView({
             </div>
           )}
 
-          <div className="flex bg-slate-100/50 p-1 rounded-xl mb-4 text-sm font-medium">
-            <button
-              onClick={() => setActiveTab('parents')}
-              className={cn(
-                "flex-1 py-2 rounded-lg transition-all",
-                activeTab === 'parents' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              我們自己打的紀錄
-            </button>
-            <button
-              onClick={() => setActiveTab('baby')}
-              className={cn(
-                "flex-1 py-2 rounded-lg transition-all",
-                activeTab === 'baby' ? "bg-white text-amber-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              寶寶自己的每日日記
-            </button>
-          </div>
-
           <div className="space-y-4">
             {displayedRecords.length === 0 && !isAdding ? (
               <div className="text-center py-12 text-slate-400">
@@ -908,14 +696,7 @@ export default function RecordsView({
             ) : (
               displayedRecords.map((record) => (
         <div key={record.id} className="space-y-2">
-          <div
-            className={cn(
-              "p-5 rounded-2xl shadow-sm border flex gap-4 transition-all duration-300",
-              record.type === 'baby_ai' 
-                ? "bg-gradient-to-br from-amber-50 to-white border-amber-200 ring-1 ring-amber-100" 
-                : "bg-white border-slate-100"
-            )}
-          >
+          <div className="p-5 rounded-2xl shadow-sm border flex gap-4 transition-all duration-300 bg-white border-slate-100">
             <div className="flex-1">
               {editingRecordId === record.id ? (
                 <div className="space-y-3 mb-2 animate-in fade-in zoom-in-95 duration-200">
@@ -949,37 +730,17 @@ export default function RecordsView({
                 </div>
               ) : (
                 <>
-                  <div className={cn(
-                    "flex items-center gap-2 text-sm font-semibold mb-2 px-2 py-1 rounded-md w-full",
-                    record.type === 'baby_ai' ? "text-amber-700 bg-amber-100/50" : "text-indigo-600 bg-indigo-50 inline-flex w-max"
-                  )}>
-                    {record.type === 'baby_ai' ? <Sparkles className="w-4 h-4" /> : <Calendar className="w-4 h-4" />}
-                    {record.type === 'baby_ai' ? "寶寶每日日記" : `第 ${record.weekCount} 週 ${record.dayCount} 天`}
-                    <span className={cn(
-                      "font-normal ml-2 flex-1",
-                      record.type === 'baby_ai' ? "text-amber-600/70" : "text-slate-400"
-                    )}>
+                  <div className="flex items-center gap-2 text-sm font-semibold mb-2 px-2 py-1 rounded-md w-full text-indigo-600 bg-indigo-50 inline-flex w-max">
+                    <Calendar className="w-4 h-4" />
+                    {`第 ${record.weekCount} 週 ${record.dayCount} 天`}
+                    <span className="font-normal ml-2 flex-1 text-slate-400">
                       {new Date(record.date).toLocaleDateString()}
                     </span>
-                    {record.type === 'baby_ai' && (
-                      <button
-                        onClick={() => handleRegenerateBabyImage(record)}
-                        disabled={isGeneratingDaily}
-                        className="ml-auto text-xs flex items-center gap-1 bg-white/50 hover:bg-white text-amber-600 border border-amber-200 px-2 py-0.5 rounded shadow-sm disabled:opacity-50 transition-colors cursor-pointer"
-                        title="重新生成這張照片"
-                      >
-                        {isGeneratingDaily ? <Loader2 className="w-3 h-3 animate-spin"/> : <Cloud className="w-3 h-3" />}
-                        {isGeneratingDaily ? '生成中...' : '重新生成照片'}
-                      </button>
-                    )}
                   </div>
 
                   {record.note && (
-                    <p className={cn(
-                      "whitespace-pre-wrap leading-relaxed mt-2 mb-4",
-                      record.type === 'baby_ai' ? "text-amber-900 font-medium italic" : "text-slate-700"
-                    )}>
-                      {record.type === 'baby_ai' && "「"}{record.note}{record.type === 'baby_ai' && "」"}
+                    <p className="whitespace-pre-wrap leading-relaxed mt-2 mb-4 text-slate-700">
+                      {record.note}
                     </p>
                   )}
                 </>
@@ -1014,7 +775,7 @@ export default function RecordsView({
                     )
                   ) : (
                     <img
-                      src={record.url}
+                      src={record.driveFileId ? `https://drive.google.com/uc?id=${record.driveFileId}` : record.url}
                       alt="Record"
                       className="max-h-80 w-auto rounded-lg"
                       referrerPolicy="no-referrer"
