@@ -16,19 +16,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from "../lib/utils";
-import { BABY_MESSAGES } from '../constants/babyMessages';
-import { 
-  BABY_MESSAGES_STARCH,
-  BABY_MESSAGES_MOM_HARDWORK,
-  BABY_MESSAGES_DAD_TASKS,
-  BABY_MESSAGES_TAIWAN_FOOD,
-  BABY_MESSAGES_FUTURE
-} from '../constants/babyMessagesDynamic';
-import { BABY_MESSAGES_NEW_PART_1, BABY_MESSAGES_NEW_PART_2 } from '../constants/babyMessagesAdd1';
-import { BABY_MESSAGES_NEW_PART_3 } from '../constants/babyMessagesAdd3';
-import { BABY_MESSAGES_NEW_PART_4 } from '../constants/babyMessagesAdd4';
-import { BABY_MESSAGES_NEW_PART_5 } from '../constants/babyMessagesAdd5';
-import { BABY_MESSAGES_NEW_PART_OPTIONS } from '../constants/babyMessagesAddOptions';
+import { ALL_BABY_MESSAGES } from '../constants/babyMessages';
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
 import { withKeyFallback } from "../services/gemini";
 import { 
@@ -131,44 +119,28 @@ export default function RecordsView({
       .map((r) => r.quotes)
       .flat();
 
-    const hour = new Date().getHours();
-    let candidateList: any[] = [];
-    const rnd = Math.random();
+    const candidateList = [...ALL_BABY_MESSAGES, ...dynamicQuotes];
 
-    // 25% chance to guarantee Starch/Bread message (Rule 3)
-    // Else fall back to time-based logic (Rule 1)
-    if (rnd < 0.25) {
-      candidateList = BABY_MESSAGES_STARCH;
-    } else {
-      if (hour >= 6 && hour < 10) {
-        candidateList = BABY_MESSAGES_STARCH; // Morning bread
-      } else if (hour >= 22 || hour < 4) {
-        candidateList = BABY_MESSAGES_TAIWAN_FOOD; // Late night snack
-      } else if (hour >= 10 && hour < 18) {
-        // Working hours -> Mom hardwork & Dad tasks
-        candidateList = [...BABY_MESSAGES_MOM_HARDWORK, ...BABY_MESSAGES_DAD_TASKS];
-      } else {
-        // Evening / random
-        candidateList = [
-          ...BABY_MESSAGES_FUTURE, 
-          ...BABY_MESSAGES_TAIWAN_FOOD, 
-          ...BABY_MESSAGES,
-          ...BABY_MESSAGES_NEW_PART_1,
-          ...BABY_MESSAGES_NEW_PART_2,
-          ...BABY_MESSAGES_NEW_PART_3,
-          ...BABY_MESSAGES_NEW_PART_4,
-          ...BABY_MESSAGES_NEW_PART_5,
-          ...BABY_MESSAGES_NEW_PART_OPTIONS
-        ];
+    let unseenIndices: number[] = [];
+    try {
+      const stored = localStorage.getItem('unseen_baby_message_indices');
+      if (stored) {
+        unseenIndices = JSON.parse(stored);
       }
+    } catch(e) {}
+    
+    // Re-initialize if empty or mismatch length (just simple bounds check)
+    unseenIndices = unseenIndices.filter(i => i >= 0 && i < candidateList.length);
+    if (unseenIndices.length === 0) {
+      unseenIndices = Array.from({length: candidateList.length}, (_, i) => i);
     }
-
-    // Mix in dynamic quotes ~20% of the time if available
-    if (dynamicQuotes.length > 0 && Math.random() < 0.2) {
-      candidateList = dynamicQuotes;
-    }
-
-    const nextIndex = Math.floor(Math.random() * candidateList.length);
+    
+    const randomIndexPosition = Math.floor(Math.random() * unseenIndices.length);
+    const nextIndex = unseenIndices[randomIndexPosition];
+    
+    unseenIndices.splice(randomIndexPosition, 1);
+    localStorage.setItem('unseen_baby_message_indices', JSON.stringify(unseenIndices));
+    
     const msg = candidateList[nextIndex];
     
     // We don't use setLastMessageIndex anymore for the complex list since it can shift
