@@ -9,6 +9,7 @@ interface Milestone {
   task: string;
   category?: 'checkup' | 'equipment' | 'hospital_bag' | 'other';
   isCompleted: boolean;
+  price?: number;
   createdAt: any;
 }
 
@@ -59,9 +60,21 @@ export default function MilestonesView() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [newTask, setNewTask] = useState('');
   const [newTaskCategory, setNewTaskCategory] = useState<NonNullable<Milestone['category']>>('equipment');
-  const [activeCategoryFilter, setActiveCategoryFilter] = useState<Milestone['category'] | 'all'>('all');
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState<Milestone['category'] | 'all' | 'completed'>('all');
   const [isLoading, setIsLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+
+  const completedCount = milestones.filter(m => m.isCompleted).length;
+  const totalSpent = milestones.filter(m => m.isCompleted).reduce((sum, m) => sum + (m.price || 0), 0);
+
+  const filteredMilestones = milestones.filter(m => {
+    if (activeCategoryFilter === 'completed') return m.isCompleted;
+    if (m.isCompleted) return false;
+    
+    if (activeCategoryFilter === 'all') return true;
+    if (activeCategoryFilter === 'other') return !m.category || m.category === 'other';
+    return m.category === activeCategoryFilter;
+  });
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -121,6 +134,17 @@ export default function MilestonesView() {
       await deleteDoc(doc(db, 'milestones', id));
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, `milestones/${id}`);
+    }
+  };
+
+  const updatePrice = async (id: string, price: number | undefined) => {
+    try {
+      await updateDoc(doc(db, 'milestones', id), {
+        price: price ?? null,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `milestones/${id}`);
     }
   };
 
@@ -209,6 +233,19 @@ export default function MilestonesView() {
           </div>
         </div>
 
+        {/* Total Spent Dashboard */}
+        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-5 rounded-3xl shadow-md text-white flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="bg-white/20 p-3 rounded-2xl">
+              <span className="text-2xl">💰</span>
+            </div>
+            <div>
+              <h3 className="text-white/80 text-sm font-medium">累計採購與相關花費</h3>
+              <p className="text-3xl font-black">${totalSpent.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
         {/* Input Area */}
         <div className="bg-white p-4 rounded-3xl shadow-sm border border-indigo-50 space-y-3">
           <div className="flex gap-2">
@@ -249,7 +286,8 @@ export default function MilestonesView() {
             { id: 'equipment', label: '設備採購' },
             { id: 'checkup', label: '產檢' },
             { id: 'hospital_bag', label: '待產包' },
-            { id: 'other', label: '其他' }
+            { id: 'other', label: '其他' },
+            { id: 'completed', label: `✅ 已完成 (${completedCount})` }
           ].map(cat => (
             <button
               key={cat.id}
@@ -268,15 +306,13 @@ export default function MilestonesView() {
 
         {/* List Areas */}
         <div className="space-y-3">
-          {milestones.filter(m => activeCategoryFilter === 'all' || m.category === activeCategoryFilter || (!m.category && activeCategoryFilter === 'other')).length === 0 ? (
+          {filteredMilestones.length === 0 ? (
             <div className="text-center py-20 text-indigo-300 flex flex-col items-center gap-2">
               <ClipboardList className="w-12 h-12 opacity-20" />
-              <p>目前還沒有任何紀事，開始規劃您的孕期準備吧！</p>
+              <p>{activeCategoryFilter === 'completed' ? '目前還沒有已完成的紀事！' : '目前還沒有任何紀事，開始規劃您的孕期準備吧！'}</p>
             </div>
           ) : (
-            milestones
-              .filter(m => activeCategoryFilter === 'all' || m.category === activeCategoryFilter || (!m.category && activeCategoryFilter === 'other'))
-              .map((m) => (
+            filteredMilestones.map((m) => (
               <div 
                 key={m.id} 
                 className={cn(
@@ -316,9 +352,26 @@ export default function MilestonesView() {
                   </span>
                 </div>
 
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <span className="text-xs text-slate-300">$</span>
+                  <input
+                    type="number"
+                    value={m.price ?? ''}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      updatePrice(m.id, isNaN(val) ? undefined : val);
+                    }}
+                    placeholder="金額"
+                    className={cn(
+                      "w-16 sm:w-20 bg-transparent border-b border-transparent focus:border-indigo-400 focus:outline-none text-right transition-colors text-sm font-medium",
+                      m.isCompleted ? "text-slate-500" : "text-indigo-700 hover:border-slate-200"
+                    )}
+                  />
+                </div>
+
                 <button 
                   onClick={() => handleDelete(m.id)}
-                  className="text-slate-200 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-2 shrink-0"
+                  className="text-slate-200 hover:text-rose-500 opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 shrink-0"
                 >
                   <Trash2 className="w-5 h-5" />
                 </button>
