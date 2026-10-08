@@ -55,7 +55,7 @@ export default function ChatView({ userProfile }: ChatViewProps) {
   }, [userProfile?.role]);
 
   const getActiveProfile = () => {
-    const isMainAccount = auth.currentUser?.email === 'jason2134@gmail.com' || auth.currentUser?.email === 'user@gmail.com';
+    const isMainAccount = auth.currentUser?.email === 'jason2134@gmail.com' || auth.currentUser?.email === 'user@gmail.com' || auth.currentUser?.email === 'crywood216@gmail.com';
     if (isMainAccount) {
       if (currentRole === 'mama') return { nickname: '茶', avatarUrl: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Mama&backgroundColor=ffdfbf' };
       if (currentRole === 'papa') return { nickname: '傑', avatarUrl: 'https://api.dicebear.com/7.x/lorelei/svg?seed=Papa&backgroundColor=b6e3f4' };

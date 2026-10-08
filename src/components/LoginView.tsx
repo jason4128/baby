@@ -3,6 +3,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnony
 import { auth, db } from '../lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Baby, LogIn, UserPlus, AlertCircle, UserCircle } from 'lucide-react';
+import { authorizeGoogleDrive } from '../services/googleDrive';
 
 export default function LoginView() {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,6 +23,20 @@ export default function LoginView() {
     'https://api.dicebear.com/7.x/lorelei/svg?seed=guest5&backgroundColor=ffd5dc',
     'https://api.dicebear.com/7.x/lorelei/svg?seed=guest6&backgroundColor=ffdfbf',
   ];
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      await authorizeGoogleDrive();
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setError(err.message || 'Google 登入失敗，請確認已核准授權');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +86,7 @@ export default function LoginView() {
         <h1 className="text-2xl font-black text-center text-[#5C4D43] mb-2 tracking-tight">
           育產食譜顧問
         </h1>
-        <p className="text-center text-amber-800/60 font-medium mb-8">
+        <p className="text-center text-amber-800/60 font-medium mb-6">
           {isGuestMode ? '以訪客身份參與紀錄分享' : (isLogin ? '登入以繼續使用您的專屬紀錄' : '建立帳號以同步您的食譜紀錄')}
         </p>
 
@@ -79,6 +94,29 @@ export default function LoginView() {
           <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-start gap-3 border border-red-100">
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
             <span className="font-medium">{error}</span>
+          </div>
+        )}
+
+        {!isGuestMode && (
+          <div className="mb-6">
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 border border-slate-200 active:scale-[0.99] text-[#3c4043] font-semibold py-3 px-4 rounded-xl shadow-sm transition-all text-sm group disabled:opacity-60"
+            >
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 48 48">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+              </svg>
+              <span>以 Google 帳號登入 (支援雲端硬碟)</span>
+            </button>
+            <div className="relative flex items-center justify-center mt-5">
+              <div className="border-t border-amber-100 w-full"></div>
+              <span className="bg-white px-3 text-xs text-amber-900/40 font-medium">或使用電子郵件</span>
+            </div>
           </div>
         )}
 

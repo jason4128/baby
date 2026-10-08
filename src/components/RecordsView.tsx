@@ -47,7 +47,10 @@ import {
   makeFilePublic,
   getOrCreateFolder,
   ensureAuth,
-  uploadViaGAS
+  uploadViaGAS,
+  authorizeGoogleDrive,
+  hasDriveAuth,
+  getDriveEmail
 } from "../services/googleDrive";
 import { SlotMachineModal } from "./SlotMachineModal";
 
@@ -97,7 +100,25 @@ export default function RecordsView({
   const [editDate, setEditDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isDriveAuthorizedState, setIsDriveAuthorizedState] = useState<boolean>(() => hasDriveAuth());
+  const [isAuthorizingModal, setIsAuthorizingModal] = useState(false);
+
+  const handleAuthorizeInModal = async () => {
+    setIsAuthorizingModal(true);
+    setSaveError(null);
+    try {
+      await authorizeGoogleDrive();
+      setIsDriveAuthorizedState(true);
+    } catch (e: any) {
+      if (e?.code !== 'auth/popup-closed-by-user') {
+        setSaveError(e.message || "授權失敗，請確認已核准 Google 雲端硬碟權限");
+      }
+    } finally {
+      setIsAuthorizingModal(false);
+    }
+  };
 
   const [babyMessage, setBabyMessage] = useState<any>(null);
   const [showBabyBubble, setShowBabyBubble] = useState(false);
@@ -198,7 +219,7 @@ export default function RecordsView({
   useEffect(() => {
     if (!auth.currentUser) return;
     
-    const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
+    const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com' || auth.currentUser.email === 'crywood216@gmail.com';
     const isGuestUser = userProfile?.isGuest || userProfile?.role === 'guest';
     const q = (isMainAccount || isGuestUser)
       ? query(collection(db, 'records'), orderBy('date', 'desc'))
@@ -240,12 +261,6 @@ export default function RecordsView({
     if (!auth.currentUser || (!mediaFile && !note.trim())) return;
     
     setSaveError(null);
-
-    if (mediaFile && !gasUploadUrl && !oauthClientId) {
-      setSaveError("請先前往右上角「廚備設定」設定 Google 雲端儲存（推薦免登入 GAS 網址）。");
-      return;
-    }
-
     setIsSaving(true);
 
     try {
@@ -253,10 +268,16 @@ export default function RecordsView({
       let driveFileId = "";
 
       if (mediaFile) {
-        if (gasUploadUrl && gasUploadUrl.trim()) {
+        const isVideo = mediaFile.type.startsWith("video");
+        
+        if (gasUploadUrl && gasUploadUrl.trim() && !hasDriveAuth()) {
           // 🚀 免登入模式：透過 Google Apps Script Web App 上傳至指定 Google 雲端帳號
           try {
-            const uploaded = await uploadViaGAS(gasUploadUrl.trim(), mediaFile);
+            const uploaded = await uploadViaGAS(
+              gasUploadUrl.trim(),
+              mediaFile,
+              (percent, msg) => setUploadProgress(msg)
+            );
             driveFileId = uploaded.id;
             finalUrl = uploaded.url;
           } catch (gasErr: any) {
@@ -264,19 +285,20 @@ export default function RecordsView({
             throw new Error(gasErr.message || "Google Apps Script 免登入上傳失敗，請確認腳本網址與權限。");
           }
         } else {
-          // OAuth 模式：需要瀏覽器彈跳視窗登入授權
+          // 🚀 官方 Google Drive 直傳模式 (Resumable Upload，徹底解除 35MB 限制，支援 267MB+ 檔案)
           try {
             await ensureAuth();
+            setIsDriveAuthorizedState(true);
           } catch (authErr: any) {
             console.error("Auth pre-check failed", authErr);
             throw new Error(authErr.message || "Google 雲端硬碟授權驗證失敗，請確認已核准權限。");
           }
 
-          // Upload to Google Drive instead of Base64 to Firestore
           try {
-            const isVideo = mediaFile.type.startsWith("video");
             const folderId = await getOrCreateFolder("戰友奶爸指揮中心");
-            const driveFile = await uploadToDrive(mediaFile, folderId);
+            const driveFile = await uploadToDrive(mediaFile, folderId, (percent, msg) => {
+              setUploadProgress(msg);
+            });
             driveFileId = driveFile.id;
             finalUrl = getDriveFileUrl(driveFile.id, isVideo);
             
@@ -284,7 +306,7 @@ export default function RecordsView({
             await makeFilePublic(driveFile.id);
           } catch (driveErr: any) {
             console.error("Drive upload failed", driveErr);
-            throw new Error(driveErr.message || "雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
+            throw new Error(driveErr.message || "雲端硬碟上傳失敗，請確認已授權 Google 雲端硬碟。");
           }
         }
       }
@@ -310,10 +332,15 @@ export default function RecordsView({
       setNote("");
       setRecordDate(new Date().toISOString().split('T')[0]);
     } catch (e: any) {
-      setSaveError(e.message || "上傳與儲存失敗，請確認相關設定或稍後再試。");
-      handleFirestoreError(e, OperationType.CREATE, 'records');
+      const errMsg = e.message || "上傳與儲存失敗，請確認相關設定或稍後再試。";
+      setSaveError(errMsg);
+      // 僅在 Firestore 資料庫操作（如權限不足）失敗時才通報 Firestore 錯誤處理器，避免一般檔案上傳訊息被誤判為資料庫崩潰
+      if (e?.code && typeof e.code === 'string' && (e.code.includes('permission') || e.code.includes('unavailable') || e.code.includes('resource-exhausted'))) {
+        handleFirestoreError(e, OperationType.CREATE, 'records');
+      }
     } finally {
       setIsSaving(false);
+      setUploadProgress(null);
     }
   };
 
@@ -609,20 +636,40 @@ export default function RecordsView({
                     />
                   </label>
                 </div>
-                <div className="text-[11px] ml-1">
-                  {gasUploadUrl && gasUploadUrl.trim() ? (
-                    <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                <div className="text-[11px] ml-1 flex items-center justify-between flex-wrap gap-2">
+                  {hasDriveAuth() ? (
+                    <span className="text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
                       <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      ✨ 免登入模式已就緒：照片/影片將直接歸檔至專屬 Google 雲端帳號
+                      已連結 Google 雲端硬碟 ({getDriveEmail() || '已授權'}) · 支援 267MB+ 影片直傳 (無大小限制)
                     </span>
-                  ) : oauthClientId ? (
-                    <span className="text-amber-700 font-medium">
-                      🔑 OAuth 模式：上傳時將彈窗請您授權登入個人 Google 帳號
-                    </span>
+                  ) : gasUploadUrl && gasUploadUrl.trim() ? (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-blue-700 font-medium">
+                        🚀 已啟用 GAS 免登入模式
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleAuthorizeInModal}
+                        disabled={isAuthorizingModal}
+                        className="text-[11px] bg-amber-600 hover:bg-amber-700 text-white font-bold px-2.5 py-1 rounded-lg transition"
+                      >
+                        {isAuthorizingModal ? '開啟授權視窗中...' : '切換為 Google 官方直傳 (推薦)'}
+                      </button>
+                    </div>
                   ) : (
-                    <span className="text-slate-400 italic">
-                      * 尚未設定 Google 儲存位置，請至右上角「廚備設定」設定
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-amber-800 font-medium">
+                        💡 推薦使用 Google 官方直傳 (支援 267MB+ 影片，無大小限制)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleAuthorizeInModal}
+                        disabled={isAuthorizingModal}
+                        className="text-[11px] bg-amber-600 hover:bg-amber-700 text-white font-bold px-2.5 py-1 rounded-lg shadow-sm transition flex items-center gap-1"
+                      >
+                        {isAuthorizingModal ? '開啟授權視窗中...' : '🔑 一鍵授權 Google 帳號 (如 crywood216@gmail.com)'}
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -667,16 +714,24 @@ export default function RecordsView({
                   </div>
                 )}
 
-                <div className="pt-2 flex justify-end">
+                <div className="pt-2 flex flex-col sm:flex-row items-end sm:items-center justify-between gap-2">
+                  <div className="text-xs text-indigo-700 font-semibold min-h-[20px] flex items-center">
+                    {uploadProgress && (
+                      <span className="flex items-center gap-1.5 animate-pulse bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-100">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                        {uploadProgress}
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={handleAddRecord}
                     disabled={isSaving || (!mediaFile && !note.trim())}
-                    className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-xl disabled:opacity-50 hover:bg-indigo-700 transition flex items-center gap-2"
+                    className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-xl disabled:opacity-50 hover:bg-indigo-700 transition flex items-center gap-2 shrink-0 shadow-sm"
                   >
                     {isSaving ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>儲存上傳中...</span>
+                        <span>處理中...</span>
                       </>
                     ) : (
                       "儲存"
@@ -876,7 +931,7 @@ function CommentSection({ recordId, userProfile }: { recordId: string; userProfi
     }
   };
 
-  const isAdmin = auth.currentUser?.email === 'jason2134@gmail.com' || auth.currentUser?.email === 'user@gmail.com';
+  const isAdmin = auth.currentUser?.email === 'jason2134@gmail.com' || auth.currentUser?.email === 'user@gmail.com' || auth.currentUser?.email === 'crywood216@gmail.com';
 
   const deleteComment = async (commentId: string) => {
     if (!window.confirm("確定要刪除這則留言嗎？")) return;

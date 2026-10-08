@@ -21,7 +21,7 @@ import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 
-import { initDriveAuth } from './services/googleDrive';
+import { initDriveAuth, authorizeGoogleDrive, hasDriveAuth, getDriveEmail } from './services/googleDrive';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -190,7 +190,10 @@ export default function App() {
   const [gasUploadUrl, setGasUploadUrl] = useState<string>(() => localStorage.getItem('baby_gas_upload_url') || '');
   const [showGasGuide, setShowGasGuide] = useState(false);
   const [copiedGasScript, setCopiedGasScript] = useState(false);
-  const [activeDriveTab, setActiveDriveTab] = useState<'gas' | 'oauth'>('gas');
+  const [activeDriveTab, setActiveDriveTab] = useState<'gas' | 'oauth'>('oauth');
+  const [isDriveAuthorized, setIsDriveAuthorized] = useState<boolean>(() => hasDriveAuth());
+  const [driveEmail, setDriveEmail] = useState<string | null>(() => getDriveEmail());
+  const [isAuthorizingDrive, setIsAuthorizingDrive] = useState(false);
 
   useEffect(() => {
     // Load oauthClientId and gasUploadUrl from Firestore if exists
@@ -242,12 +245,14 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribeSnapshot: (() => void) | null = null;
-    const isMainAccount = (u: any) => u?.email === 'jason2134@gmail.com' || u?.email === 'user@gmail.com';
+    const isMainAccount = (u: any) => u?.email === 'jason2134@gmail.com' || u?.email === 'user@gmail.com' || u?.email === 'crywood216@gmail.com';
     const MAMMA_AVATAR = 'https://api.dicebear.com/7.x/lorelei/svg?seed=Mama&backgroundColor=ffdfbf';
     const PAPA_AVATAR = 'https://api.dicebear.com/7.x/lorelei/svg?seed=Papa&backgroundColor=b6e3f4';
     const GUEST_AVATAR = 'https://api.dicebear.com/7.x/lorelei/svg?seed=Guest&backgroundColor=ffdfbf';
 
     const authUnsub = onAuthStateChanged(auth, async (u) => {
+      setIsDriveAuthorized(hasDriveAuth());
+      setDriveEmail(getDriveEmail());
       if (u) {
         setUser(u);
         const docRef = doc(db, 'users', u.uid);
@@ -829,6 +834,22 @@ export default function App() {
     }
   };
 
+  const handleAuthorizeGoogle = async () => {
+    setIsAuthorizingDrive(true);
+    try {
+      const res = await authorizeGoogleDrive();
+      setIsDriveAuthorized(true);
+      setDriveEmail(res.email);
+      showModal('✅ Google 雲端硬碟授權成功', `已成功連結 Google 帳號 (${res.email || '已授權'})！\n現在您可以直接上傳 267MB+ 的高畫質長影片或照片至 Google 雲端硬碟，完全解除大小限制。`);
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        showModal('❌ 授權失敗', err.message || '授權 Google 雲端硬碟時發生錯誤，請重試。');
+      }
+    } finally {
+      setIsAuthorizingDrive(false);
+    }
+  };
+
   const renderContent = () => {
     if (activeTab === 'recipes') return <RecipesView tools={tools} seasonings={seasonings} ingredients={ingredients} pregWeek={pregWeek} />;
     if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} oauthClientId={oauthClientId} gasUploadUrl={gasUploadUrl} userProfile={userProfile} />;
@@ -1042,33 +1063,24 @@ export default function App() {
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-[#5C4D43] flex items-center gap-2">
                   <span>Google Drive 雲端儲存</span>
-                  {gasUploadUrl ? (
-                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">免登入模式已啟用</span>
-                  ) : oauthClientId ? (
-                    <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold">OAuth 模式</span>
+                  {isDriveAuthorized ? (
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">
+                      ✅ Google 帳號直傳已授權 ({driveEmail || '已連結'})
+                    </span>
+                  ) : gasUploadUrl ? (
+                    <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold">免登入 GAS 模式</span>
                   ) : (
-                    <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold">未設定</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold">尚未授權</span>
                   )}
                 </h3>
               </div>
               
               <p className="text-xs text-amber-800/80 mb-4 leading-relaxed">
-                照片與影片將直接儲存至您的 Google 雲端硬碟。您可以選擇<strong>「免登入模式 (推薦)」</strong>直接存入指定的另一個 Google 帳號，或使用<strong>「OAuth 模式」</strong>。
+                照片與長影片將直接儲存至您的 Google 雲端硬碟。推薦使用<strong>「Google 帳號直接授權 (推薦)」</strong>，透過官方 API 可<strong>完全解除 35MB 限制</strong>，支援 267MB+ 影片直傳！亦可使用 GAS 免登入模式。
               </p>
 
               {/* Mode Tabs */}
               <div className="flex bg-[#F5EDE0] p-1 rounded-xl mb-4 text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => setActiveDriveTab('gas')}
-                  className={`flex-1 py-1.5 rounded-lg transition-all ${
-                    activeDriveTab === 'gas'
-                      ? 'bg-white text-emerald-800 shadow-sm'
-                      : 'text-amber-900/60 hover:text-amber-900'
-                  }`}
-                >
-                  🚀 免登入模式 (Google Apps Script 推薦)
-                </button>
                 <button
                   type="button"
                   onClick={() => setActiveDriveTab('oauth')}
@@ -1078,7 +1090,18 @@ export default function App() {
                       : 'text-amber-900/60 hover:text-amber-900'
                   }`}
                 >
-                  🔑 OAuth 模式 (需彈窗登入)
+                  ✨ Google 帳號直傳 (推薦 · 解除35MB限制)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveDriveTab('gas')}
+                  className={`flex-1 py-1.5 rounded-lg transition-all ${
+                    activeDriveTab === 'gas'
+                      ? 'bg-white text-emerald-800 shadow-sm'
+                      : 'text-amber-900/60 hover:text-amber-900'
+                  }`}
+                >
+                  🚀 免登入模式 (GAS 腳本)
                 </button>
               </div>
 
@@ -1111,14 +1134,151 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                            const scriptContent = `// ==========================================\n// 寶寶成長紀錄 - 免登入 Google 雲端硬碟接收服務\n// ==========================================\nvar TARGET_FOLDER_ID = ""; // 選填：您想儲存的 Google Drive 資料夾 ID (留空則存在根目錄)\n\nfunction doPost(e) {\n  try {\n    if (!e || !e.postData || !e.postData.contents) {\n      return responseJSON({ status: "error", message: "未接收到資料" });\n    }\n    var data = JSON.parse(e.postData.contents);\n    var filename = data.filename || ("baby_record_" + new Date().getTime());\n    var mimeType = data.mimeType || "application/octet-stream";\n    var base64Data = data.base64;\n    if (!base64Data) {\n      return responseJSON({ status: "error", message: "缺少檔案內容" });\n    }\n    var decoded = Utilities.base64Decode(base64Data);\n    var blob = Utilities.newBlob(decoded, mimeType, filename);\n    var folder;\n    if (TARGET_FOLDER_ID && TARGET_FOLDER_ID.trim().length > 0) {\n      folder = DriveApp.getFolderById(TARGET_FOLDER_ID.trim());\n    } else {\n      folder = DriveApp.getRootFolder();\n    }\n    var file = folder.createFile(blob);\n    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);\n    var fileId = file.getId();\n    var isVideo = mimeType.indexOf("video") === 0;\n    var displayUrl = isVideo \n      ? ("https://drive.google.com/file/d/" + fileId + "/preview")\n      : ("https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200");\n    return responseJSON({\n      status: "success",\n      id: fileId,\n      url: displayUrl,\n      name: file.getName()\n    });\n  } catch (err) {\n    return responseJSON({ status: "error", message: err.toString() });\n  }\n}\n\nfunction doGet(e) {\n  return responseJSON({ status: "ok", message: "Baby Upload Service is active" });\n}\n\nfunction responseJSON(obj) {\n  return ContentService.createTextOutput(JSON.stringify(obj))\n    .setMimeType(ContentService.MimeType.JSON);\n}`;
+                            const scriptContent = `// ==========================================
+// 寶寶成長紀錄 - 免登入 Google 雲端接收服務
+// 支援超大容量長影片 (自動分段上傳，徹底解除 35MB 限制)
+// ==========================================
+var TARGET_FOLDER_ID = ""; // 選填：目標資料夾 ID (留空則存在根目錄)
+
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return responseJSON({ status: "error", message: "未接收到資料" });
+    }
+    var data = JSON.parse(e.postData.contents);
+
+    // 🚀 功能一：建立大檔案續傳會話 (支援數百 MB 到數 GB 影片)
+    if (data.action === "createResumableSession") {
+      var token = ScriptApp.getOAuthToken();
+      var metadata = {
+        name: data.filename || ("baby_record_" + new Date().getTime()),
+        mimeType: data.mimeType || "application/octet-stream"
+      };
+      if (TARGET_FOLDER_ID && TARGET_FOLDER_ID.trim()) {
+        metadata.parents = [TARGET_FOLDER_ID.trim()];
+      }
+      var requestHeaders = {
+        "Authorization": "Bearer " + token,
+        "X-Upload-Content-Type": data.mimeType || "application/octet-stream",
+        "X-Upload-Content-Length": data.size ? data.size.toString() : "0"
+      };
+      var res = UrlFetchApp.fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
+        method: "post",
+        headers: requestHeaders,
+        contentType: "application/json; charset=UTF-8",
+        payload: JSON.stringify(metadata),
+        muteHttpExceptions: true
+      });
+      var code = res.getResponseCode();
+      if (code < 200 || code >= 300) {
+        return responseJSON({ status: "error", message: "建立 Google Drive 會話失敗 (" + code + "): " + res.getContentText() });
+      }
+      var headers = res.getAllHeaders();
+      var locationUrl = headers["Location"] || headers["location"];
+      if (!locationUrl) {
+        return responseJSON({ status: "error", message: "Google Drive 未回傳續傳網址 (Location)" });
+      }
+      return responseJSON({ status: "success", locationUrl: locationUrl });
+    }
+
+    // 🚀 功能二：分段傳輸 (Chunk Upload) - 解除大小限制核心功能
+    if (data.action === "uploadChunk") {
+      if (!data.locationUrl || !data.chunkBase64 || !data.range) {
+        return responseJSON({ status: "error", message: "缺少分段傳輸必要參數" });
+      }
+      var chunkBytes = Utilities.base64Decode(data.chunkBase64);
+      var chunkRes = UrlFetchApp.fetch(data.locationUrl, {
+        method: "put",
+        headers: {
+          "Content-Range": data.range,
+          "Content-Type": data.mimeType || "application/octet-stream"
+        },
+        payload: chunkBytes,
+        muteHttpExceptions: true
+      });
+      var statusCode = chunkRes.getResponseCode();
+
+      // 308 代表該分段已接收，等待後續分段
+      if (statusCode === 308) {
+        return responseJSON({ status: "incomplete", statusCode: 308 });
+      }
+
+      // 200 或 201 代表全檔案已傳輸完成！
+      if (statusCode === 200 || statusCode === 201) {
+        var fileInfo = JSON.parse(chunkRes.getContentText());
+        var fileId = fileInfo.id;
+        try {
+          var driveFile = DriveApp.getFileById(fileId);
+          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        } catch (shareErr) {}
+
+        var isVideo = (data.mimeType || "").indexOf("video") === 0;
+        var displayUrl = isVideo 
+          ? ("https://drive.google.com/file/d/" + fileId + "/preview")
+          : ("https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200");
+
+        return responseJSON({
+          status: "success",
+          id: fileId,
+          url: displayUrl,
+          name: fileInfo.name || data.filename
+        });
+      }
+
+      return responseJSON({
+        status: "error",
+        message: "Google Drive 分段接收失敗 (" + statusCode + "): " + chunkRes.getContentText()
+      });
+    }
+
+    // 🚀 功能三：設定檔案為公開檢視 (輔助)
+    if (data.action === "makePublic") {
+      if (!data.fileId) return responseJSON({ status: "error", message: "缺少 fileId" });
+      var file = DriveApp.getFileById(data.fileId);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      var isVideo = (data.mimeType || "").indexOf("video") === 0;
+      var displayUrl = isVideo 
+        ? ("https://drive.google.com/file/d/" + data.fileId + "/preview")
+        : ("https://drive.google.com/thumbnail?id=" + data.fileId + "&sz=w1200");
+      return responseJSON({ status: "success", id: data.fileId, url: displayUrl, name: file.getName() });
+    }
+
+    // 🚀 功能四：小檔案 Base64 直接接收 (<= 25MB 快速單次上傳)
+    var filename = data.filename || ("baby_record_" + new Date().getTime());
+    var mimeType = data.mimeType || "application/octet-stream";
+    if (!data.base64) {
+      return responseJSON({ status: "error", message: "未接收到檔案內容" });
+    }
+    var decoded = Utilities.base64Decode(data.base64);
+    var blob = Utilities.newBlob(decoded, mimeType, filename);
+    var folder = (TARGET_FOLDER_ID && TARGET_FOLDER_ID.trim()) ? DriveApp.getFolderById(TARGET_FOLDER_ID.trim()) : DriveApp.getRootFolder();
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    var fileId = file.getId();
+    var isVideo = mimeType.indexOf("video") === 0;
+    var displayUrl = isVideo 
+      ? ("https://drive.google.com/file/d/" + fileId + "/preview")
+      : ("https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200");
+    return responseJSON({ status: "success", id: fileId, url: displayUrl, name: file.getName() });
+  } catch (err) {
+    return responseJSON({ status: "error", message: err.toString() });
+  }
+}
+
+function doGet(e) {
+  return responseJSON({ status: "ok", message: "Baby Upload Service is active (Supports Chunked Upload & Large Files)" });
+}
+
+function responseJSON(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}`;
                             navigator.clipboard.writeText(scriptContent);
                             setCopiedGasScript(true);
                             setTimeout(() => setCopiedGasScript(false), 2500);
                           }}
                           className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition"
                         >
-                          {copiedGasScript ? '✅ 已複製腳本！' : '📄 一鍵複製完整腳本'}
+                          {copiedGasScript ? '✅ 已複製最新大容量腳本！' : '📄 一鍵複製最新腳本 (解除35MB限制)'}
                         </button>
                       </div>
                       <ol className="list-decimal list-inside space-y-1.5 leading-relaxed text-emerald-900/90 font-medium">
@@ -1138,26 +1298,55 @@ export default function App() {
                   )}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div className="flex gap-2 items-center">
-                    <span className="text-xs font-bold text-amber-900/60 w-20 text-right">Client ID:</span>
-                    <input 
-                      type="text" 
-                      value={oauthClientId} 
-                      onChange={e => setOauthClientId(e.target.value)}
-                      className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
-                      placeholder="輸入 OAuth Client ID..."
-                    />
-                  </div>
-                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-100">
-                    <p className="text-xs text-amber-800 leading-relaxed font-medium">
-                      💡 <strong>如何取得 Client ID？</strong><br/>
-                      1. 前往 <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-amber-600 underline">Google Cloud Console</a><br/>
-                      2. 建立專案並開啟 Google Drive API<br/>
-                      3. 在憑證建立「OAuth 2.0 用戶端 ID」（Web Application）<br/>
-                      4. 已授權 JavaScript 來源加入 <code>{window.location.origin}</code> 並貼上 Client ID。
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 p-4 rounded-2xl border border-amber-200/60 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2.5 h-2.5 rounded-full ${isDriveAuthorized ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
+                        <span className="text-xs font-bold text-amber-950">
+                          {isDriveAuthorized ? `✅ 已授權 Google 雲端硬碟 (${driveEmail || '已連結'})` : '⚠️ 尚未授權 Google 雲端硬碟'}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-amber-900/80 leading-relaxed font-medium">
+                      點擊下方按鈕即可透過 Google 官方授權視窗選擇您的 Google 帳號（例如 <code className="bg-amber-100/90 px-1.5 py-0.5 rounded text-amber-950 font-mono font-bold">crywood216@gmail.com</code>）。
+                      授權後可<strong>完全解除 35MB 限制</strong>，支援 267MB+ 甚至數 GB 的高畫質長影片高速直傳！
                     </p>
+                    <button
+                      type="button"
+                      onClick={handleAuthorizeGoogle}
+                      disabled={isAuthorizingDrive}
+                      className="w-full flex items-center justify-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-bold py-2.5 px-4 rounded-xl shadow-sm text-xs transition active:scale-[0.99] disabled:opacity-60"
+                    >
+                      <svg className="w-4 h-4 shrink-0" viewBox="0 0 48 48">
+                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                      </svg>
+                      <span>
+                        {isAuthorizingDrive
+                          ? '正在開啟 Google 授權視窗...'
+                          : isDriveAuthorized
+                          ? '切換或重新授權 Google 帳號 (如 crywood216@gmail.com)'
+                          : '🔑 立即授權 Google 帳號 (免貼 Client ID，一鍵啟用)'}
+                      </span>
+                    </button>
                   </div>
+
+                  <details className="text-xs text-amber-800/70">
+                    <summary className="cursor-pointer hover:text-amber-900 font-semibold mb-2">進階設定：自訂 OAuth Client ID (選填)</summary>
+                    <div className="flex gap-2 items-center mt-2">
+                      <span className="text-xs font-bold text-amber-900/60 w-20 text-right">Client ID:</span>
+                      <input 
+                        type="text" 
+                        value={oauthClientId} 
+                        onChange={e => setOauthClientId(e.target.value)}
+                        className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
+                        placeholder="留空將使用系統官方授權..."
+                      />
+                    </div>
+                  </details>
                 </div>
               )}
 
