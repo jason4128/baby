@@ -46,7 +46,8 @@ import {
   getDriveFileUrl, 
   makeFilePublic,
   getOrCreateFolder,
-  ensureAuth
+  ensureAuth,
+  uploadViaGAS
 } from "../services/googleDrive";
 import { SlotMachineModal } from "./SlotMachineModal";
 
@@ -70,6 +71,7 @@ interface RecordsViewProps {
   conceptionDate: Date;
   onUpdateConceptionDate: (date: Date) => void;
   oauthClientId: string;
+  gasUploadUrl?: string;
   userProfile: any;
 }
 
@@ -81,6 +83,7 @@ export default function RecordsView({
   conceptionDate,
   onUpdateConceptionDate,
   oauthClientId,
+  gasUploadUrl,
   userProfile,
 }: RecordsViewProps) {
   const [records, setRecords] = useState<RecordEntry[]>([]);
@@ -238,8 +241,8 @@ export default function RecordsView({
     
     setSaveError(null);
 
-    if (mediaFile && !oauthClientId) {
-      setSaveError("請先前往右上角「廚備設定」設定 Google OAuth Client ID，才能上傳照片或影片到 Google Drive。");
+    if (mediaFile && !gasUploadUrl && !oauthClientId) {
+      setSaveError("請先前往右上角「廚備設定」設定 Google 雲端儲存（推薦免登入 GAS 網址）。");
       return;
     }
 
@@ -250,27 +253,39 @@ export default function RecordsView({
       let driveFileId = "";
 
       if (mediaFile) {
-        // 先呼叫 ensureAuth，確保瀏覽器不會因為異步 API 的調用而阻擋 Google OAuth 登入彈出視窗
-        try {
-          await ensureAuth();
-        } catch (authErr: any) {
-          console.error("Auth pre-check failed", authErr);
-          throw new Error(authErr.message || "Google 雲端硬碟授權驗證失敗，請確認已核准權限。");
-        }
+        if (gasUploadUrl && gasUploadUrl.trim()) {
+          // 🚀 免登入模式：透過 Google Apps Script Web App 上傳至指定 Google 雲端帳號
+          try {
+            const uploaded = await uploadViaGAS(gasUploadUrl.trim(), mediaFile);
+            driveFileId = uploaded.id;
+            finalUrl = uploaded.url;
+          } catch (gasErr: any) {
+            console.error("GAS upload failed", gasErr);
+            throw new Error(gasErr.message || "Google Apps Script 免登入上傳失敗，請確認腳本網址與權限。");
+          }
+        } else {
+          // OAuth 模式：需要瀏覽器彈跳視窗登入授權
+          try {
+            await ensureAuth();
+          } catch (authErr: any) {
+            console.error("Auth pre-check failed", authErr);
+            throw new Error(authErr.message || "Google 雲端硬碟授權驗證失敗，請確認已核准權限。");
+          }
 
-        // Upload to Google Drive instead of Base64 to Firestore
-        try {
-          const isVideo = mediaFile.type.startsWith("video");
-          const folderId = await getOrCreateFolder("戰友奶爸指揮中心");
-          const driveFile = await uploadToDrive(mediaFile, folderId);
-          driveFileId = driveFile.id;
-          finalUrl = getDriveFileUrl(driveFile.id, isVideo);
-          
-          // Make file accessible to anyone with the link so it can be seen on other devices
-          await makeFilePublic(driveFile.id);
-        } catch (driveErr: any) {
-          console.error("Drive upload failed", driveErr);
-          throw new Error(driveErr.message || "雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
+          // Upload to Google Drive instead of Base64 to Firestore
+          try {
+            const isVideo = mediaFile.type.startsWith("video");
+            const folderId = await getOrCreateFolder("戰友奶爸指揮中心");
+            const driveFile = await uploadToDrive(mediaFile, folderId);
+            driveFileId = driveFile.id;
+            finalUrl = getDriveFileUrl(driveFile.id, isVideo);
+            
+            // Make file accessible to anyone with the link so it can be seen on other devices
+            await makeFilePublic(driveFile.id);
+          } catch (driveErr: any) {
+            console.error("Drive upload failed", driveErr);
+            throw new Error(driveErr.message || "雲端硬碟上傳失敗，請確認已授權或 Client ID 正確。");
+          }
         }
       }
       
@@ -594,9 +609,22 @@ export default function RecordsView({
                     />
                   </label>
                 </div>
-                <p className="text-[10px] text-slate-400 ml-1 italic">
-                  * 註：照片與影片將儲存於您的 Google Drive，不佔用資料庫空間。
-                </p>
+                <div className="text-[11px] ml-1">
+                  {gasUploadUrl && gasUploadUrl.trim() ? (
+                    <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      ✨ 免登入模式已就緒：照片/影片將直接歸檔至專屬 Google 雲端帳號
+                    </span>
+                  ) : oauthClientId ? (
+                    <span className="text-amber-700 font-medium">
+                      🔑 OAuth 模式：上傳時將彈窗請您授權登入個人 Google 帳號
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 italic">
+                      * 尚未設定 Google 儲存位置，請至右上角「廚備設定」設定
+                    </span>
+                  )}
+                </div>
 
                 {mediaFile && previewUrl && (
                   <div className="relative inline-block mt-4">

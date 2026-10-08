@@ -44,7 +44,8 @@ service cloud.firestore {
         && ( !('seasonings' in data) || (data.seasonings is list && data.seasonings.size() <= 100) )
         && ( !('ingredients' in data) || (data.ingredients is list && data.ingredients.size() <= 200) )
         && ( !('conceptionDate' in data) || data.conceptionDate is string )
-        && ( !('oauthClientId' in data) || (data.oauthClientId is string && data.oauthClientId.size() <= 500) );
+        && ( !('oauthClientId' in data) || (data.oauthClientId is string && data.oauthClientId.size() <= 500) )
+        && ( !('gasUploadUrl' in data) || (data.gasUploadUrl is string && data.gasUploadUrl.size() <= 1000) );
     }
 
     match /users/{userId} {
@@ -57,7 +58,7 @@ service cloud.firestore {
                     && isValidUserProfile(incoming())
                     && incoming().createdAt == existing().createdAt
                     && incoming().updatedAt == request.time
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'avatarUrl', 'role', 'isGuest', 'tools', 'seasonings', 'ingredients', 'conceptionDate', 'oauthClientId', 'updatedAt']);
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'avatarUrl', 'role', 'isGuest', 'tools', 'seasonings', 'ingredients', 'conceptionDate', 'oauthClientId', 'gasUploadUrl', 'updatedAt']);
     }
 
     // Recipe Validations

@@ -187,17 +187,27 @@ export default function App() {
   const [pregDay, setPregDay] = useState(0);
   const [conceptionDate, setConceptionDate] = useState<Date>(CONCEPTION_DATE);
   const [oauthClientId, setOauthClientId] = useState<string>('');
+  const [gasUploadUrl, setGasUploadUrl] = useState<string>(() => localStorage.getItem('baby_gas_upload_url') || '');
+  const [showGasGuide, setShowGasGuide] = useState(false);
+  const [copiedGasScript, setCopiedGasScript] = useState(false);
+  const [activeDriveTab, setActiveDriveTab] = useState<'gas' | 'oauth'>('gas');
 
   useEffect(() => {
-    // Load oauthClientId from Firestore if exists
+    // Load oauthClientId and gasUploadUrl from Firestore if exists
     if (user) {
       const loadConfig = async () => {
         const docRef = doc(db, 'users', user.uid);
         const snap = await getDoc(docRef);
-        if (snap.exists() && snap.data().oauthClientId) {
-          const clientId = snap.data().oauthClientId;
-          setOauthClientId(clientId);
-          initDriveAuth(clientId);
+        if (snap.exists()) {
+          const snapData = snap.data();
+          if (snapData.oauthClientId) {
+            setOauthClientId(snapData.oauthClientId);
+            initDriveAuth(snapData.oauthClientId);
+          }
+          if (snapData.gasUploadUrl) {
+            setGasUploadUrl(snapData.gasUploadUrl);
+            localStorage.setItem('baby_gas_upload_url', snapData.gasUploadUrl);
+          }
         }
       };
       loadConfig();
@@ -260,6 +270,7 @@ export default function App() {
               ingredients: INITIAL_INGREDIENTS,
               conceptionDate: CONCEPTION_DATE.toISOString(),
               oauthClientId: '',
+              gasUploadUrl: '',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             });
@@ -794,25 +805,33 @@ export default function App() {
     }
   };
 
-  const handleUpdateOauthClientId = async (clientId: string) => {
+  const handleUpdateDriveSettings = async (clientId: string, gasUrl: string) => {
     setOauthClientId(clientId);
-    if (user && clientId.trim()) {
+    setGasUploadUrl(gasUrl);
+    localStorage.setItem('baby_gas_upload_url', gasUrl);
+    if (user) {
       try {
         await updateDoc(doc(db, 'users', user.uid), {
           oauthClientId: clientId,
+          gasUploadUrl: gasUrl,
           updatedAt: serverTimestamp()
         });
-        initDriveAuth(clientId);
-        showModal('✅ 設定已儲存', 'Google OAuth Client ID 已儲存並初始化。');
+        if (clientId.trim()) {
+          initDriveAuth(clientId);
+        }
+        showModal('✅ 設定已儲存', 'Google 雲端儲存設定已成功更新！');
       } catch (err) {
         console.error(err);
+        showModal('❌ 儲存失敗', '更新設定時發生錯誤，請稍後再試。');
       }
+    } else {
+      showModal('✅ 設定已儲存', '設定已暫存於本機瀏覽器。');
     }
   };
 
   const renderContent = () => {
     if (activeTab === 'recipes') return <RecipesView tools={tools} seasonings={seasonings} ingredients={ingredients} pregWeek={pregWeek} />;
-    if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} oauthClientId={oauthClientId} userProfile={userProfile} />;
+    if (activeTab === 'records') return <RecordsView pregWeek={pregWeek} pregDay={pregDay} conceptionDate={conceptionDate} onUpdateConceptionDate={handleUpdateConceptionDate} oauthClientId={oauthClientId} gasUploadUrl={gasUploadUrl} userProfile={userProfile} />;
     if (activeTab === 'shopping') return <ShoppingView pregWeek={pregWeek} />;
     if (activeTab === 'wife') return <WifeView pregWeek={pregWeek} />;
     if (activeTab === 'milestones') return <MilestonesView />;
@@ -1020,39 +1039,135 @@ export default function App() {
 
             {/* Google Drive Settings */}
             <div className="mt-8 pt-6 border-t border-amber-100">
-               <h3 className="text-sm font-bold text-[#5C4D43] mb-3 flex items-center gap-2">Google Drive 雲端儲存</h3>
-               <p className="text-sm text-amber-800/70 mb-4">
-                 由於資料庫大小限制，照片與影片將儲存於您的 Google Drive。請提供 Google Cloud Console 的 OAuth Client ID。
-               </p>
-               <div className="space-y-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold text-[#5C4D43] flex items-center gap-2">
+                  <span>Google Drive 雲端儲存</span>
+                  {gasUploadUrl ? (
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">免登入模式已啟用</span>
+                  ) : oauthClientId ? (
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold">OAuth 模式</span>
+                  ) : (
+                    <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold">未設定</span>
+                  )}
+                </h3>
+              </div>
+              
+              <p className="text-xs text-amber-800/80 mb-4 leading-relaxed">
+                照片與影片將直接儲存至您的 Google 雲端硬碟。您可以選擇<strong>「免登入模式 (推薦)」</strong>直接存入指定的另一個 Google 帳號，或使用<strong>「OAuth 模式」</strong>。
+              </p>
+
+              {/* Mode Tabs */}
+              <div className="flex bg-[#F5EDE0] p-1 rounded-xl mb-4 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setActiveDriveTab('gas')}
+                  className={`flex-1 py-1.5 rounded-lg transition-all ${
+                    activeDriveTab === 'gas'
+                      ? 'bg-white text-emerald-800 shadow-sm'
+                      : 'text-amber-900/60 hover:text-amber-900'
+                  }`}
+                >
+                  🚀 免登入模式 (Google Apps Script 推薦)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveDriveTab('oauth')}
+                  className={`flex-1 py-1.5 rounded-lg transition-all ${
+                    activeDriveTab === 'oauth'
+                      ? 'bg-white text-amber-900 shadow-sm'
+                      : 'text-amber-900/60 hover:text-amber-900'
+                  }`}
+                >
+                  🔑 OAuth 模式 (需彈窗登入)
+                </button>
+              </div>
+
+              {activeDriveTab === 'gas' ? (
+                <div className="space-y-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-amber-900/80 flex items-center justify-between">
+                      <span>GAS Web App 網址 (URL):</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowGasGuide(!showGasGuide)}
+                        className="text-emerald-700 hover:text-emerald-800 font-semibold text-[11px] underline"
+                      >
+                        {showGasGuide ? '收起設定教學 ▲' : '💡 如何取得？查看 5 步驟教學 ▼'}
+                      </button>
+                    </label>
+                    <input
+                      type="url"
+                      value={gasUploadUrl}
+                      onChange={e => setGasUploadUrl(e.target.value)}
+                      className="w-full bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 text-[#5C4D43]"
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                    />
+                  </div>
+
+                  {showGasGuide && (
+                    <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-100 text-xs text-emerald-950 space-y-3 animate-in fade-in">
+                      <div className="flex items-center justify-between">
+                        <p className="font-bold text-emerald-900 text-sm">📋 5 步驟手把手設定教學：</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const scriptContent = `// ==========================================\n// 寶寶成長紀錄 - 免登入 Google 雲端硬碟接收服務\n// ==========================================\nvar TARGET_FOLDER_ID = ""; // 選填：您想儲存的 Google Drive 資料夾 ID (留空則存在根目錄)\n\nfunction doPost(e) {\n  try {\n    if (!e || !e.postData || !e.postData.contents) {\n      return responseJSON({ status: "error", message: "未接收到資料" });\n    }\n    var data = JSON.parse(e.postData.contents);\n    var filename = data.filename || ("baby_record_" + new Date().getTime());\n    var mimeType = data.mimeType || "application/octet-stream";\n    var base64Data = data.base64;\n    if (!base64Data) {\n      return responseJSON({ status: "error", message: "缺少檔案內容" });\n    }\n    var decoded = Utilities.base64Decode(base64Data);\n    var blob = Utilities.newBlob(decoded, mimeType, filename);\n    var folder;\n    if (TARGET_FOLDER_ID && TARGET_FOLDER_ID.trim().length > 0) {\n      folder = DriveApp.getFolderById(TARGET_FOLDER_ID.trim());\n    } else {\n      folder = DriveApp.getRootFolder();\n    }\n    var file = folder.createFile(blob);\n    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);\n    var fileId = file.getId();\n    var isVideo = mimeType.indexOf("video") === 0;\n    var displayUrl = isVideo \n      ? ("https://drive.google.com/file/d/" + fileId + "/preview")\n      : ("https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200");\n    return responseJSON({\n      status: "success",\n      id: fileId,\n      url: displayUrl,\n      name: file.getName()\n    });\n  } catch (err) {\n    return responseJSON({ status: "error", message: err.toString() });\n  }\n}\n\nfunction doGet(e) {\n  return responseJSON({ status: "ok", message: "Baby Upload Service is active" });\n}\n\nfunction responseJSON(obj) {\n  return ContentService.createTextOutput(JSON.stringify(obj))\n    .setMimeType(ContentService.MimeType.JSON);\n}`;
+                            navigator.clipboard.writeText(scriptContent);
+                            setCopiedGasScript(true);
+                            setTimeout(() => setCopiedGasScript(false), 2500);
+                          }}
+                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition"
+                        >
+                          {copiedGasScript ? '✅ 已複製腳本！' : '📄 一鍵複製完整腳本'}
+                        </button>
+                      </div>
+                      <ol className="list-decimal list-inside space-y-1.5 leading-relaxed text-emerald-900/90 font-medium">
+                        <li>切換到您的<strong>另一個 Google 帳號</strong>，開啟 <a href="https://script.google.com/home/start" target="_blank" rel="noreferrer" className="text-emerald-700 underline font-bold">Google Apps Script (點此開新分頁)</a>。</li>
+                        <li>點擊左上角<strong>「新增專案」</strong>，清除編輯器全部內容，點擊上方按鈕<strong>貼上複製的腳本程式碼</strong>。</li>
+                        <li><em>(選填)</em> 若想存在指定資料夾，可將 <code>TARGET_FOLDER_ID</code> 填入該資料夾網址末段 ID。</li>
+                        <li>點擊右上角<strong>「部署」</strong>➔<strong>「新增部署作業」</strong>：
+                          <ul className="list-disc list-inside ml-4 text-[11px] text-emerald-800 space-y-0.5 mt-0.5">
+                            <li>類型選：<strong>「網頁應用程式 (Web App)」</strong></li>
+                            <li>執行身分：<strong>「我」 (您的帳號)</strong></li>
+                            <li>誰可以存取：<strong>「所有人」 (Anyone)</strong> (此設定才能讓手機免登入上傳)</li>
+                          </ul>
+                        </li>
+                        <li>點擊部署並核准權限，複製產生的<strong>「網頁應用程式網址」</strong>（以 <code>/exec</code> 結尾）貼入上方輸入框並儲存即可！</li>
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
                   <div className="flex gap-2 items-center">
-                    <span className="text-sm font-bold text-amber-900/60 w-24 text-right">Client ID:</span>
+                    <span className="text-xs font-bold text-amber-900/60 w-20 text-right">Client ID:</span>
                     <input 
                       type="text" 
                       value={oauthClientId} 
                       onChange={e => setOauthClientId(e.target.value)}
-                      className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
+                      className="flex-1 bg-[#FFF9F0] border border-[#E8DCCB] rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 text-[#5C4D43]"
                       placeholder="輸入 OAuth Client ID..."
                     />
                   </div>
-                  <div className="flex justify-end pt-2">
-                    <button 
-                      onClick={() => handleUpdateOauthClientId(oauthClientId)}
-                      className="px-6 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold transition-colors">
-                      儲存 Google 設定
-                    </button>
-                  </div>
-                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 mt-2">
+                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-100">
                     <p className="text-xs text-amber-800 leading-relaxed font-medium">
                       💡 <strong>如何取得 Client ID？</strong><br/>
-                      1. 前往 <a href="https://console.cloud.google.com/" target="_blank" className="text-amber-600 underline">Google Cloud Console</a><br/>
-                      2. 建立專案並在「API 和服務」中開啟 Google Drive API<br/>
-                      3. 在「憑證」中建立「OAuth 2.0 用戶端 ID」（類型選 Web Application）<br/>
-                      4. 在「已授權的 JavaScript 來源」加入 <code>{window.location.origin}</code><br/>
-                      5. 複製 Client ID 並貼到上方。
+                      1. 前往 <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-amber-600 underline">Google Cloud Console</a><br/>
+                      2. 建立專案並開啟 Google Drive API<br/>
+                      3. 在憑證建立「OAuth 2.0 用戶端 ID」（Web Application）<br/>
+                      4. 已授權 JavaScript 來源加入 <code>{window.location.origin}</code> 並貼上 Client ID。
                     </p>
                   </div>
-               </div>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-3">
+                <button 
+                  onClick={() => handleUpdateDriveSettings(oauthClientId, gasUploadUrl)}
+                  className="px-6 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-bold text-sm transition-colors shadow-sm">
+                  儲存雲端儲存設定
+                </button>
+              </div>
             </div>
 
             {/* API Keys */}

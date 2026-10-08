@@ -203,3 +203,62 @@ export const getDriveFileUrl = (fileId: string, isVideo: boolean = false): strin
   // For images, using the thumbnail endpoint is often more reliable than the /uc endpoint
   return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1200`;
 };
+
+/**
+ * 免登入上傳：透過使用者的 Google Apps Script (GAS) Web App 直接將檔案存入指定的 Google 雲端帳號
+ */
+export const uploadViaGAS = async (
+  gasUrl: string,
+  file: File
+): Promise<{ id: string; url: string; name?: string }> => {
+  if (file.size > 35 * 1024 * 1024) {
+    throw new Error('Google Apps Script 免登入模式單一檔案大小建議在 35MB 以內。請將影片剪短或壓縮後再試。');
+  }
+
+  // 轉換成 Base64
+  const base64Data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = reader.result as string;
+      const commaIdx = res.indexOf(',');
+      resolve(commaIdx !== -1 ? res.slice(commaIdx + 1) : res);
+    };
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(file);
+  });
+
+  const payload = {
+    filename: file.name,
+    mimeType: file.type || (file.name.endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream'),
+    base64: base64Data,
+  };
+
+  // 重要：Content-Type 採用 text/plain，可避免瀏覽器送出 OPTIONS preflight 請求而遭到 GAS 阻擋
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    mode: 'cors',
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Apps Script 連線失敗 (${response.status}): ${errorText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== 'success' || !result.id) {
+    throw new Error(result.message || 'Google Apps Script 雲端儲存失敗，請檢查腳本設定與資料夾權限。');
+  }
+
+  const isVideo = file.type.startsWith('video');
+  const displayUrl = result.url || getDriveFileUrl(result.id, isVideo);
+
+  return {
+    id: result.id,
+    url: displayUrl,
+    name: result.name || file.name,
+  };
+};
