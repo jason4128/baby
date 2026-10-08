@@ -59,10 +59,15 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     errMessage.toLowerCase().includes('offline') ||
     errorCode === 'unavailable' ||
     errorCode === 'failed-precondition' ||
+    errorCode === 'deadline-exceeded' ||
+    errorCode === 'resource-exhausted' ||
     errMessage.toLowerCase().includes('client is offline') ||
     errMessage.toLowerCase().includes('network') ||
     errMessage.toLowerCase().includes('internet') ||
-    errMessage.toLowerCase().includes('timeout');
+    errMessage.toLowerCase().includes('timeout') ||
+    errMessage.toLowerCase().includes('connection') ||
+    errMessage.toLowerCase().includes('failed to fetch') ||
+    errMessage.toLowerCase().includes('requires an index');
 
   if (isNetworkOrOffline) {
     console.warn('Firestore offline / connection pending:', JSON.stringify(errInfo));

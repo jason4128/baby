@@ -219,18 +219,15 @@ export default function RecordsView({
   useEffect(() => {
     if (!auth.currentUser) return;
     
-    const isMainAccount = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com' || auth.currentUser.email === 'crywood216@gmail.com';
-    const isGuestUser = userProfile?.isGuest || userProfile?.role === 'guest';
-    const q = (isMainAccount || isGuestUser)
-      ? query(collection(db, 'records'), orderBy('date', 'desc'))
-      : query(collection(db, 'records'), where('userId', '==', auth.currentUser.uid), orderBy('date', 'desc'));
+    // 寶寶成長日記為全家共享，所有已登入成員皆可檢視全部紀錄
+    const q = query(collection(db, 'records'));
 
-    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedRecords = snapshot.docs.map(doc => ({ 
         id: doc.id, 
         ...doc.data() 
       } as RecordEntry));
+      fetchedRecords.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setRecords(fetchedRecords);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'records');

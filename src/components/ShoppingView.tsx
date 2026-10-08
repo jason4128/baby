@@ -11,10 +11,7 @@ export default function ShoppingView({ pregWeek }: { pregWeek: number }) {
 
   useEffect(() => {
     if (!auth.currentUser) return;
-    const isAdmin = auth.currentUser.email === 'jason2134@gmail.com' || auth.currentUser.email === 'user@gmail.com';
-    const q = isAdmin 
-      ? query(collection(db, 'shoppingItems'))
-      : query(collection(db, 'shoppingItems'), where('userId', '==', auth.currentUser.uid));
+    const q = query(collection(db, 'shoppingItems'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShoppingItem));
       // Sort by status, then suggested week

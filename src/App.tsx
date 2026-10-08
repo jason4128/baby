@@ -336,7 +336,12 @@ export default function App() {
       }
     });
 
+    const authTimeout = setTimeout(() => {
+      setIsAuthLoading(false);
+    }, 3500);
+
     return () => {
+      clearTimeout(authTimeout);
       authUnsub();
       if (unsubscribeSnapshot) unsubscribeSnapshot();
     };

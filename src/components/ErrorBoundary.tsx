@@ -40,6 +40,10 @@ export class ErrorBoundary extends Component<Props, State> {
     }
   };
 
+  private handleDismiss = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
   public render() {
     if (this.state.hasError) {
       return (
@@ -50,7 +54,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <h2 className="text-xl font-black text-[#5C4D43] mb-2">畫面載入發生狀況</h2>
             <p className="text-xs text-amber-800/80 mb-6 leading-relaxed">
-              系統在初始化或同步資料時遇到暫時性問題。您可以嘗試重新整理畫面，或重設登入狀態以重新進入。
+              系統在初始化或同步資料時遇到暫時性問題。您可以嘗試略過繼續進入，或重新整理畫面。
             </p>
 
             {this.state.error && (
@@ -61,8 +65,14 @@ export class ErrorBoundary extends Component<Props, State> {
 
             <div className="flex flex-col gap-3">
               <button
-                onClick={this.handleReload}
+                onClick={this.handleDismiss}
                 className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
+              >
+                略過並繼續進入系統
+              </button>
+              <button
+                onClick={this.handleReload}
+                className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-xs border border-amber-200"
               >
                 <RefreshCw className="w-4 h-4" />
                 重新整理畫面

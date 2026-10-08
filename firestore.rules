@@ -71,16 +71,9 @@ service cloud.firestore {
     match /recipes/{recipeId} {
       allow get: if isSignedIn() && isValidId(recipeId);
       allow list: if isSignedIn();
-      allow create: if isSignedIn() && isAdmin() && isValidId(recipeId)
-                    && isValidRecipe(incoming())
-                    && incoming().createdAt == request.time
-                    && incoming().updatedAt == request.time;
-      allow update: if isSignedIn() && isAdmin() && isValidId(recipeId)
-                    && isValidRecipe(incoming())
-                    && incoming().createdAt == existing().createdAt
-                    && incoming().updatedAt == request.time
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'description', 'imageUrl', 'ingredients', 'steps', 'updatedAt']);
-      allow delete: if isSignedIn() && isAdmin() && isValidId(recipeId);
+      allow create: if isSignedIn() && isValidId(recipeId) && isValidRecipe(incoming());
+      allow update: if isSignedIn() && isValidId(recipeId) && (isAdmin() || incoming().userId == request.auth.uid);
+      allow delete: if isSignedIn() && isValidId(recipeId) && (isAdmin() || existing().userId == request.auth.uid);
     }
 
     // BabyRecord Validations
@@ -119,8 +112,7 @@ service cloud.firestore {
     match /records/{recordId}/comments/{commentId} {
       allow list, get: if isSignedIn() && isValidId(recordId);
       allow create: if isSignedIn() && isValidId(recordId) && isValidId(commentId)
-                    && isValidComment(incoming())
-                    && incoming().createdAt == request.time;
+                    && isValidComment(incoming());
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid);
     }
 
@@ -138,8 +130,7 @@ service cloud.firestore {
     match /chatMessages/{messageId} {
       allow list, get: if isSignedIn();
       allow create: if isSignedIn() && isValidId(messageId)
-                    && isValidChatMessage(incoming())
-                    && incoming().createdAt == request.time;
+                    && isValidChatMessage(incoming());
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid);
     }
 
@@ -159,14 +150,9 @@ service cloud.firestore {
       allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(itemId);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(itemId)
-                    && isValidShoppingItem(incoming())
-                    && incoming().createdAt == request.time
-                    && incoming().updatedAt == request.time;
+                    && isValidShoppingItem(incoming());
       allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(itemId)
-                    && isValidShoppingItem(incoming())
-                    && incoming().createdAt == existing().createdAt
-                    && incoming().updatedAt == request.time
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'isPurchased', 'suggestedWeek', 'updatedAt']);
+                    && isValidShoppingItem(incoming());
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(itemId);
     }
 
@@ -179,12 +165,19 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    match /wifeNotes/{noteId} {
+      allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(noteId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(noteId)
+                    && isValidWifeNote(incoming());
+      allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(noteId);
+    }
+
     match /wife_notes/{noteId} {
       allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(noteId);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(noteId)
-                    && isValidWifeNote(incoming())
-                    && incoming().createdAt == request.time;
+                    && isValidWifeNote(incoming());
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(noteId);
     }
 
@@ -203,14 +196,9 @@ service cloud.firestore {
       allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(milestoneId);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(milestoneId)
-                    && isValidMilestone(incoming())
-                    && incoming().createdAt is timestamp // we might be creating backdated ones in import
-                    && incoming().updatedAt == request.time;
+                    && isValidMilestone(incoming());
       allow update: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(milestoneId)
-                    && isValidMilestone(incoming())
-                    && incoming().createdAt == existing().createdAt
-                    && incoming().updatedAt == request.time
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['task', 'category', 'isCompleted', 'updatedAt']);
+                    && isValidMilestone(incoming());
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(milestoneId);
     }
 
@@ -244,13 +232,11 @@ service cloud.firestore {
       allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(centerId);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(centerId)
-                    && isValidPostpartumCenter(incoming())
-                    && incoming().createdAt == request.time;
+                    && isValidPostpartumCenter(incoming());
       allow update: if isSignedIn() && isValidId(centerId)
                     && (isAdmin() || existing().userId == request.auth.uid)
                     && isValidPostpartumCenter(incoming())
-                    && incoming().userId == existing().userId
-                    && incoming().createdAt == existing().createdAt;
+                    && incoming().userId == existing().userId;
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(centerId);
     }
     
@@ -258,13 +244,11 @@ service cloud.firestore {
       allow get: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(evalId);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
       allow create: if isSignedIn() && isValidId(evalId)
-                    && isValidPostpartumEvaluation(incoming())
-                    && incoming().createdAt == request.time;
+                    && isValidPostpartumEvaluation(incoming());
       allow update: if isSignedIn() && isValidId(evalId)
                     && (isAdmin() || existing().userId == request.auth.uid)
                     && isValidPostpartumEvaluation(incoming())
-                    && incoming().userId == existing().userId
-                    && incoming().createdAt == existing().createdAt;
+                    && incoming().userId == existing().userId;
       allow delete: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid) && isValidId(evalId);
     }
   }
