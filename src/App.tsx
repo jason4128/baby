@@ -195,27 +195,13 @@ export default function App() {
   const [driveEmail, setDriveEmail] = useState<string | null>(() => getDriveEmail());
   const [isAuthorizingDrive, setIsAuthorizingDrive] = useState(false);
 
+  // Safety timeout so user is never permanently stuck on "系統初始化中..."
   useEffect(() => {
-    // Load oauthClientId and gasUploadUrl from Firestore if exists
-    if (user) {
-      const loadConfig = async () => {
-        const docRef = doc(db, 'users', user.uid);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          const snapData = snap.data();
-          if (snapData.oauthClientId) {
-            setOauthClientId(snapData.oauthClientId);
-            initDriveAuth(snapData.oauthClientId);
-          }
-          if (snapData.gasUploadUrl) {
-            setGasUploadUrl(snapData.gasUploadUrl);
-            localStorage.setItem('baby_gas_upload_url', snapData.gasUploadUrl);
-          }
-        }
-      };
-      loadConfig();
-    }
-  }, [user]);
+    const safetyTimer = setTimeout(() => {
+      setIsAuthLoading(false);
+    }, 2000);
+    return () => clearTimeout(safetyTimer);
+  }, []);
 
   useEffect(() => {
     // Calculate current pregnancy week
@@ -238,7 +224,7 @@ export default function App() {
     const unsub = onSnapshot(q, (snap) => {
       setActiveShoppingItems(snap.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
     }, (error) => {
-      console.error(error);
+      console.warn('Shopping items listener notice:', error);
     });
     return () => unsub();
   }, [user]);
@@ -257,64 +243,89 @@ export default function App() {
         setUser(u);
         const docRef = doc(db, 'users', u.uid);
         
-        try {
-          const docSnap = await getDoc(docRef);
-          if (!docSnap.exists()) {
-            const isMain = isMainAccount(u);
-            const initialRole = isMain ? 'papa' : 'guest';
-            const initialNickname = isMain ? '傑' : (u.email?.split('@')[0] || '訪客');
-            const initialAvatar = isMain ? PAPA_AVATAR : GUEST_AVATAR;
+        let isCreatingUser = false;
+        unsubscribeSnapshot = onSnapshot(docRef, async (snapshot) => {
+          if (!snapshot.exists()) {
+            if (!isCreatingUser) {
+              isCreatingUser = true;
+              const isMain = isMainAccount(u);
+              const initialRole = isMain ? 'papa' : 'guest';
+              const initialNickname = isMain ? '傑' : (u.email?.split('@')[0] || '訪客');
+              const initialAvatar = isMain ? PAPA_AVATAR : GUEST_AVATAR;
 
-            await setDoc(docRef, {
-              userId: u.uid,
-              nickname: initialNickname,
-              role: initialRole,
-              avatarUrl: initialAvatar,
-              tools: INITIAL_TOOLS,
-              seasonings: INITIAL_SEASONINGS,
-              ingredients: INITIAL_INGREDIENTS,
-              conceptionDate: CONCEPTION_DATE.toISOString(),
-              oauthClientId: '',
-              gasUploadUrl: '',
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            });
+              try {
+                await setDoc(docRef, {
+                  userId: u.uid,
+                  nickname: initialNickname,
+                  role: initialRole,
+                  avatarUrl: initialAvatar,
+                  tools: INITIAL_TOOLS,
+                  seasonings: INITIAL_SEASONINGS,
+                  ingredients: INITIAL_INGREDIENTS,
+                  conceptionDate: CONCEPTION_DATE.toISOString(),
+                  oauthClientId: '',
+                  gasUploadUrl: '',
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp()
+                });
+              } catch (setErr: any) {
+                console.warn('Failed to create initial user profile:', setErr);
+                if (setErr?.code === 'permission-denied') {
+                  try {
+                    handleFirestoreError(setErr, OperationType.CREATE, `users/${u.uid}`);
+                  } catch (e) {
+                    console.warn('Permission notice:', e);
+                  }
+                }
+                isCreatingUser = false;
+              }
+            }
+            setIsAuthLoading(false);
+            return;
           }
 
-          unsubscribeSnapshot = onSnapshot(docRef, (snapshot) => {
-            if (snapshot.exists()) {
-              const data = snapshot.data();
-              
-              if (data.isGuest && activeTab === 'chat') {
-                setActiveTab('records');
-              }
+          const data = snapshot.data();
+          if (data.oauthClientId) {
+            setOauthClientId(data.oauthClientId);
+            initDriveAuth(data.oauthClientId);
+          }
+          if (data.gasUploadUrl) {
+            setGasUploadUrl(data.gasUploadUrl);
+            localStorage.setItem('baby_gas_upload_url', data.gasUploadUrl);
+          }
+          
+          if (data.isGuest) {
+            setActiveTab(prev => (prev === 'chat' ? 'records' : prev));
+          }
 
-              const isMain = isMainAccount(u);
-              if (isMain) {
-                if (data.role === 'mama' && data.nickname !== '茶') {
-                  updateDoc(docRef, { nickname: '茶', avatarUrl: MAMMA_AVATAR });
-                } else if (data.role === 'papa' && data.nickname !== '傑') {
-                  updateDoc(docRef, { nickname: '傑', avatarUrl: PAPA_AVATAR });
-                }
-              }
-
-              setUserProfile(data);
-              setTools(data.tools || []);
-              setSeasonings(data.seasonings || []);
-              setIngredients(data.ingredients || []);
-              if (data.conceptionDate) {
-                setConceptionDate(new Date(data.conceptionDate));
-              }
-              setIsAuthLoading(false);
+          const isMain = isMainAccount(u);
+          if (isMain) {
+            if (data.role === 'mama' && data.nickname !== '茶') {
+              updateDoc(docRef, { nickname: '茶', avatarUrl: MAMMA_AVATAR }).catch(() => {});
+            } else if (data.role === 'papa' && data.nickname !== '傑') {
+              updateDoc(docRef, { nickname: '傑', avatarUrl: PAPA_AVATAR }).catch(() => {});
             }
-          }, (err) => {
-            handleFirestoreError(err, OperationType.GET, `users/${u.uid}`);
-          });
+          }
 
-        } catch (e) {
-          handleFirestoreError(e, OperationType.GET, `users/${u.uid}`);
+          setUserProfile(data);
+          setTools(data.tools || []);
+          setSeasonings(data.seasonings || []);
+          setIngredients(data.ingredients || []);
+          if (data.conceptionDate) {
+            setConceptionDate(new Date(data.conceptionDate));
+          }
           setIsAuthLoading(false);
-        }
+        }, (err) => {
+          console.warn('User doc snapshot notice:', err);
+          setIsAuthLoading(false);
+          if ((err as any)?.code === 'permission-denied') {
+            try {
+              handleFirestoreError(err, OperationType.GET, `users/${u.uid}`);
+            } catch (e) {
+              console.warn('Permission notice:', e);
+            }
+          }
+        });
       } else {
         setUser(null);
         if (unsubscribeSnapshot) {
@@ -329,7 +340,7 @@ export default function App() {
       authUnsub();
       if (unsubscribeSnapshot) unsubscribeSnapshot();
     };
-  }, [activeTab]);
+  }, []);
 
   useEffect(() => {
     // Initialize speech recognition

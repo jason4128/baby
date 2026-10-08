@@ -67,21 +67,34 @@ export const hasDriveAuth = (): boolean => {
 export const authorizeGoogleDrive = async (): Promise<{ accessToken: string; email: string | null; user: User }> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, driveProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('無法從 Google 取得雲端硬碟存取憑證 (Access Token)，請確認已核准權限。');
+    let result;
+    try {
+      result = await signInWithPopup(auth, driveProvider);
+    } catch (popupErr: any) {
+      if (popupErr?.code === 'auth/popup-blocked') {
+        throw new Error('瀏覽器已封鎖快顯視窗，請允許本網站開啟彈出視窗後重試。');
+      }
+      if (popupErr?.code === 'auth/popup-closed-by-user') {
+        throw popupErr;
+      }
+      console.warn('Drive provider sign-in notice, retrying with standard Google provider:', popupErr);
+      const fallbackProvider = new GoogleAuthProvider();
+      result = await signInWithPopup(auth, fallbackProvider);
     }
 
-    cachedAccessToken = credential.accessToken;
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+    }
     cachedDriveEmail = result.user.email;
+
     return {
-      accessToken: cachedAccessToken,
+      accessToken: cachedAccessToken || '',
       email: cachedDriveEmail,
       user: result.user
     };
   } catch (err: any) {
-    console.error('Google Drive sign-in/authorization error:', err);
+    console.error('Google sign-in/authorization error:', err);
     throw err;
   } finally {
     isSigningIn = false;

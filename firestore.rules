@@ -17,25 +17,24 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function isGuest() { 
       return isSignedIn() && (
-        (request.auth.token.firebase.sign_in_provider == 'anonymous') ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isGuest == true
+        request.auth.token.firebase.sign_in_provider == 'anonymous' ||
+        request.auth.token.get('isGuest', false) == true
       );
     }
     function isAdmin() { 
       return isSignedIn() && (
         request.auth.uid == '9fJCbAnrFGeaG8IAOsUcp3XeUcf2' || 
         request.auth.token.get('email', '') == 'jason2134@gmail.com' || 
-        request.auth.token.get('email', '') == 'user@gmail.com'
+        request.auth.token.get('email', '') == 'user@gmail.com' ||
+        request.auth.token.get('email', '') == 'crywood216@gmail.com'
       ); 
     }
 
     // UserProfile Validations
     function isValidUserProfile(data) {
-      return data.keys().hasAll(['userId', 'createdAt', 'updatedAt']) 
-        && data.userId == request.auth.uid
+      return data.keys().hasAll(['userId']) 
+        && (isAdmin() || data.userId == request.auth.uid)
         && data.userId is string && data.userId.size() <= 128
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp
         && ( !('nickname' in data) || (data.nickname is string && data.nickname.size() <= 50) )
         && ( !('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 500) )
         && ( !('role' in data) || (data.role is string && data.role in ['mama', 'papa', 'guest']) )
@@ -49,16 +48,10 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if isSignedIn() && (isAdmin() || request.auth.uid == userId || isGuest()) && isValidId(userId);
-      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId)
-                    && isValidUserProfile(incoming())
-                    && incoming().createdAt == request.time
-                    && incoming().updatedAt == request.time;
-      allow update: if isSignedIn() && (isAdmin() || request.auth.uid == userId) && isValidId(userId)
-                    && isValidUserProfile(incoming())
-                    && incoming().createdAt == existing().createdAt
-                    && incoming().updatedAt == request.time
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['nickname', 'avatarUrl', 'role', 'isGuest', 'tools', 'seasonings', 'ingredients', 'conceptionDate', 'oauthClientId', 'gasUploadUrl', 'updatedAt']);
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isAdmin() || request.auth.uid == userId) && isValidUserProfile(incoming());
+      allow update: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
+      allow delete: if isSignedIn() && isAdmin();
     }
 
     // Recipe Validations

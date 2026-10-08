@@ -5,7 +5,9 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+export const db = (firebaseConfig as any).firestoreDatabaseId 
+  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId) 
+  : getFirestore(app);
 
 export enum OperationType {
   CREATE = 'create',
@@ -34,8 +36,10 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMessage = error instanceof Error ? error.message : String(error);
+  const errorCode = (error as any)?.code || '';
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMessage,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -50,6 +54,21 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
+
+  const isNetworkOrOffline = 
+    errMessage.toLowerCase().includes('offline') ||
+    errorCode === 'unavailable' ||
+    errorCode === 'failed-precondition' ||
+    errMessage.toLowerCase().includes('client is offline') ||
+    errMessage.toLowerCase().includes('network') ||
+    errMessage.toLowerCase().includes('internet') ||
+    errMessage.toLowerCase().includes('timeout');
+
+  if (isNetworkOrOffline) {
+    console.warn('Firestore offline / connection pending:', JSON.stringify(errInfo));
+    return;
+  }
+
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }

@@ -38,6 +38,28 @@ export default function LoginView() {
     }
   };
 
+  const handleQuickGuest = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const cred = await signInAnonymously(auth);
+      await setDoc(doc(db, 'users', cred.user.uid), {
+        userId: cred.user.uid,
+        nickname: '訪客親友',
+        avatarUrl: avatars[0],
+        isGuest: true,
+        role: 'guest',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    } catch (err: any) {
+      console.warn('Quick guest login notice:', err);
+      setError('訪客登入失敗，請確認網路連線。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -45,16 +67,12 @@ export default function LoginView() {
 
     try {
       if (isGuestMode) {
-        if (!guestNickname.trim()) {
-          setError('請輸入訪客暱稱');
-          setLoading(false);
-          return;
-        }
+        const nick = guestNickname.trim() || '訪客親友';
         const cred = await signInAnonymously(auth);
         // Create profile for guest
         await setDoc(doc(db, 'users', cred.user.uid), {
           userId: cred.user.uid,
-          nickname: guestNickname.trim(),
+          nickname: nick,
           avatarUrl: selectedAvatar,
           isGuest: true,
           role: 'guest',
@@ -221,13 +239,23 @@ export default function LoginView() {
               >
                 {isLogin ? '還沒有帳號？立即註冊' : '已經有帳號了？返回登入'}
               </button>
-              <button
-                type="button"
-                onClick={() => setIsGuestMode(true)}
-                className="text-slate-500 font-bold hover:text-slate-700 transition-colors text-sm"
-              >
-                以訪客身份進入
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleQuickGuest}
+                  disabled={loading}
+                  className="flex-1 py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-xl transition-colors text-xs border border-amber-200"
+                >
+                  ⚡ 一鍵以訪客模式進入
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsGuestMode(true)}
+                  className="py-2 px-3 text-slate-500 font-bold hover:text-slate-700 transition-colors text-xs"
+                >
+                  自訂訪客頭貼/暱稱
+                </button>
+              </div>
             </>
           ) : (
             <button
